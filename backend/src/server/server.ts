@@ -13,6 +13,8 @@ import { Instance } from "../project/instance"
 import { Vcs } from "../project/vcs"
 import { Agent } from "../agent/agent"
 import { Skill } from "../skill/skill"
+import { Plugin } from "../plugin"
+import { Settings } from "../config/settings"
 import { Flag } from "../flag/flag"
 import { Command } from "../command"
 import { Global } from "../global"
@@ -357,7 +359,7 @@ export namespace Server {
         "/skill",
         describeRoute({
           summary: "List skills",
-          description: "Get a list of all available skills in the OpenCode system.",
+          description: "Get a list of skills. By default returns only enabled skills. Use ?all=true to return all discovered skills.",
           operationId: "app.skills",
           responses: {
             200: {
@@ -370,9 +372,86 @@ export namespace Server {
             },
           },
         }),
+        validator(
+          "query",
+          z.object({
+            directory: z.string().optional(),
+            workspace: z.string().optional(),
+            all: z.string().optional(),
+          }),
+        ),
         async (c) => {
-          const skills = await Skill.all()
+          const showAll = c.req.query("all") === "true"
+          const skills = showAll ? await Skill.all() : await Skill.enabled()
           return c.json(skills)
+        },
+      )
+      .get(
+        "/plugin",
+        describeRoute({
+          summary: "List plugins",
+          description: "Get a list of all loaded plugins and their status.",
+          operationId: "app.plugins",
+          responses: {
+            200: {
+              description: "List of plugins",
+              content: {
+                "application/json": {
+                  schema: resolver(Plugin.Info.array()),
+                },
+              },
+            },
+          },
+        }),
+        async (c) => {
+          const plugins = await Plugin.infos()
+          return c.json(plugins)
+        },
+      )
+      .get(
+        "/settings",
+        describeRoute({
+          summary: "Get settings",
+          description: "Retrieve the project-level settings from .claude/settings.json.",
+          operationId: "settings.get",
+          responses: {
+            200: {
+              description: "Current settings",
+              content: {
+                "application/json": {
+                  schema: resolver(Settings.Info),
+                },
+              },
+            },
+          },
+        }),
+        async (c) => {
+          return c.json(await Settings.get())
+        },
+      )
+      .patch(
+        "/settings",
+        describeRoute({
+          summary: "Update settings",
+          description: "Update project-level settings in .claude/settings.json.",
+          operationId: "settings.update",
+          responses: {
+            200: {
+              description: "Updated settings",
+              content: {
+                "application/json": {
+                  schema: resolver(Settings.Info),
+                },
+              },
+            },
+            ...errors(400),
+          },
+        }),
+        validator("json", Settings.Info),
+        async (c) => {
+          const patch = c.req.valid("json")
+          const updated = await Settings.update(patch)
+          return c.json(updated)
         },
       )
       // LSP status route removed — not needed for general-purpose agent

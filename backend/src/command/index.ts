@@ -123,8 +123,8 @@ export namespace Command {
       }
     }
 
-    // Add skills as invokable commands
-    for (const skill of await Skill.all()) {
+    // Add skills as invokable commands (only enabled ones)
+    for (const skill of await Skill.enabled()) {
       // Skip if a command with this name already exists
       if (result[skill.name]) continue
       result[skill.name] = {

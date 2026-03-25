@@ -1,5 +1,6 @@
 import type { Hooks, PluginInput, Plugin as PluginInstance } from "@opencode-ai/plugin"
 import { Config } from "../config/config"
+import { Settings } from "../config/settings"
 import { Bus } from "../bus"
 import { Log } from "../util/log"
 import { createOpencodeClient } from "@opencode-ai/sdk"
@@ -10,9 +11,16 @@ import { Flag } from "../flag/flag"
 // Auth plugins removed — MAAS adapter handles provider authentication
 import { Session } from "../session"
 import { NamedError } from "@opencode-ai/util/error"
+import z from "zod"
 
 export namespace Plugin {
   const log = Log.create({ service: "plugin" })
+
+  export const Info = z.object({
+    name: z.string(),
+    status: z.enum(["loaded", "failed"]),
+  }).meta({ ref: "Plugin" })
+  export type Info = z.infer<typeof Info>
 
   const BUILTIN = [] as string[]
 
@@ -32,6 +40,7 @@ export namespace Plugin {
     })
     const config = await Config.get()
     const hooks: Hooks[] = []
+    const infos: Info[] = []
     const input: PluginInput = {
       client,
       project: Instance.project,
@@ -48,7 +57,12 @@ export namespace Plugin {
       const init = await plugin(input).catch((err) => {
         log.error("failed to load internal plugin", { name: plugin.name, error: err })
       })
-      if (init) hooks.push(init)
+      if (init) {
+        hooks.push(init)
+        infos.push({ name: plugin.name, status: "loaded" })
+      } else {
+        infos.push({ name: plugin.name, status: "failed" })
+      }
     }
 
     let plugins = config.plugin ?? []
@@ -57,9 +71,23 @@ export namespace Plugin {
       plugins = [...BUILTIN, ...plugins]
     }
 
+    // Filter plugins by whitelist from settings.json
+    const settings = await Settings.get()
+    const enabledList = settings.enabled_plugins
+    if (enabledList && enabledList.length > 0) {
+      plugins = plugins.filter((p) => {
+        const name = Config.getPluginName(p)
+        return Settings.isPluginEnabled(name, settings) || Settings.isPluginEnabled(p, settings)
+      })
+    } else {
+      // No whitelist → disable all external plugins (keep BUILTIN behavior via INTERNAL_PLUGINS)
+      plugins = []
+    }
+
     for (let plugin of plugins) {
       // ignore old codex plugin since it is supported first party now
       if (plugin.includes("opencode-openai-codex-auth") || plugin.includes("opencode-copilot-auth")) continue
+      const originalName = plugin
       log.info("loading plugin", { path: plugin })
       if (!plugin.startsWith("file://")) {
         const lastAtIndex = plugin.lastIndexOf("@")
@@ -76,7 +104,10 @@ export namespace Plugin {
           })
           return ""
         })
-        if (!plugin) continue
+        if (!plugin) {
+          infos.push({ name: originalName, status: "failed" })
+          continue
+        }
       }
       // Prevent duplicate initialization when plugins export the same function
       // as both a named export and default export (e.g., `export const X` and `export default X`).
@@ -89,6 +120,7 @@ export namespace Plugin {
             seen.add(fn)
             hooks.push(await fn(input))
           }
+          infos.push({ name: originalName, status: "loaded" })
         })
         .catch((err) => {
           const message = err instanceof Error ? err.message : String(err)
@@ -98,11 +130,13 @@ export namespace Plugin {
               message: `Failed to load plugin ${plugin}: ${message}`,
             }).toObject(),
           })
+          infos.push({ name: originalName, status: "failed" })
         })
     }
 
     return {
       hooks,
+      infos,
       input,
     }
   })
@@ -126,6 +160,10 @@ export namespace Plugin {
 
   export async function list() {
     return state().then((x) => x.hooks)
+  }
+
+  export async function infos() {
+    return state().then((x) => x.infos)
   }
 
   export async function init() {

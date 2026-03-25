@@ -16,6 +16,7 @@ import { Glob } from "../util/glob"
 import { pathToFileURL } from "url"
 import type { Agent } from "@/agent/agent"
 import { PermissionNext } from "@/permission/next"
+import { Settings } from "@/config/settings"
 
 export namespace Skill {
   const log = Log.create({ service: "skill" })
@@ -186,12 +187,17 @@ export namespace Skill {
     return state().then((x) => Object.values(x.skills))
   }
 
+  export async function enabled() {
+    const [list, settings] = await Promise.all([all(), Settings.get()])
+    return list.filter((skill) => Settings.isSkillEnabled(skill.name, settings))
+  }
+
   export async function dirs() {
     return state().then((x) => x.dirs)
   }
 
   export async function available(agent?: Agent.Info) {
-    const list = await all()
+    const list = await enabled()
     if (!agent) return list
     return list.filter((skill) => PermissionNext.evaluate("skill", skill.name, agent.permission).action !== "deny")
   }
