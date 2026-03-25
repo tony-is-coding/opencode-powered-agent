@@ -80,6 +80,7 @@ If gstack skills aren't working, run `cd ~/.claude/skills/gstack && ./setup` to 
 - When a pre-existing plan document exists, execute it directly without re-planning. Follow the plan's tasks in order unless compilation fails.
 - After any TypeScript code changes, run type-check (`bunx tsc --noEmit` for backend, `npx tsc --noEmit` for web) before reporting completion.
 - Implement ONLY what is explicitly requested. Do not add extra APIs, repository methods, or features beyond the stated scope.
+- When receiving new feature requirements or identifying work items, split them into GitHub Issues with clear scope, requirements checklist, and acceptance criteria before starting implementation. Use the git-pm skill for issue structure.
 
 ## Key Patterns
 
