@@ -1,0 +1,47 @@
+/**
+ * OpenCode Agent Core — Server Entry Point
+ *
+ * This is the main entry point for the Agent Core service.
+ * It starts a headless HTTP server (no CLI, no TUI).
+ */
+import { Server } from "./server/server"
+import { Log } from "./util/log"
+import { Flag } from "./flag/flag"
+
+process.on("unhandledRejection", (e) => {
+  Log.Default.error("rejection", {
+    e: e instanceof Error ? e.message : e,
+  })
+})
+
+process.on("uncaughtException", (e) => {
+  Log.Default.error("exception", {
+    e: e instanceof Error ? e.message : e,
+  })
+})
+
+await Log.init({
+  print: true,
+  dev: process.env.NODE_ENV !== "production",
+  level: (process.env.LOG_LEVEL as Log.Level) ?? "INFO",
+})
+
+process.env.AGENT = "1"
+process.env.OPENCODE = "1"
+process.env.OPENCODE_PID = String(process.pid)
+
+const port = Number(process.env.PORT ?? 4096)
+const hostname = process.env.HOST ?? "0.0.0.0"
+
+if (!Flag.OPENCODE_SERVER_PASSWORD) {
+  Log.Default.warn("OPENCODE_SERVER_PASSWORD is not set; server is unsecured.")
+}
+
+const server = Server.listen({ port, hostname })
+Log.Default.info("agent-core started", {
+  url: `http://${server.hostname}:${server.port}`,
+})
+
+// Keep process alive
+await new Promise(() => {})
+await server.stop()

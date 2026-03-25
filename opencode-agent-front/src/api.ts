@@ -1,0 +1,144 @@
+export const API_BASE_URL = '/api'
+
+async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(`${API_BASE_URL}${path}`, {
+    headers: { 'Content-Type': 'application/json' },
+    ...options,
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`API ${res.status}: ${text}`)
+  }
+  return res.json()
+}
+
+// --- Types ---
+
+export interface Session {
+  id: string
+  title: string
+  slug: string
+  projectID: string
+  directory: string
+  time: { created: number; updated: number }
+}
+
+export interface Skill {
+  id: string
+  name: string
+  description: string
+  tags: string[]
+  enabled: boolean
+}
+
+export interface MessageWithParts {
+  info: {
+    id: string
+    sessionID: string
+    role: 'user' | 'assistant'
+    time: { created: number; updated: number }
+    agent?: string
+    cost?: number
+    tokens?: { input: number; output: number }
+  }
+  parts: Part[]
+}
+
+export interface Part {
+  id: string
+  type: string
+  text?: string
+  tool?: string
+  state?: { status: string; title?: string; output?: string; error?: string }
+  mime?: string
+  filename?: string
+  url?: string
+  [key: string]: unknown
+}
+
+// --- API calls ---
+
+export async function healthCheck() {
+  return request<{ healthy: boolean; version: string }>('/global/health')
+}
+
+export async function listSessions() {
+  return request<Session[]>('/session')
+}
+
+export async function createSession(title?: string) {
+  return request<Session>('/session', {
+    method: 'POST',
+    body: JSON.stringify({ title }),
+  })
+}
+
+export async function deleteSession(sessionID: string) {
+  return request<boolean>(`/session/${sessionID}`, { method: 'DELETE' })
+}
+
+export async function getMessages(sessionID: string) {
+  return request<MessageWithParts[]>(`/session/${sessionID}/message`)
+}
+
+export async function sendMessage(
+  sessionID: string,
+  parts: Array<{ type: string; [key: string]: unknown }>,
+) {
+  const res = await fetch(`${API_BASE_URL}/session/${sessionID}/message`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ parts }),
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`API ${res.status}: ${text}`)
+  }
+  return res.json() as Promise<MessageWithParts>
+}
+
+export async function sendMessageAsync(
+  sessionID: string,
+  parts: Array<{ type: string; [key: string]: unknown }>,
+) {
+  const res = await fetch(`${API_BASE_URL}/session/${sessionID}/prompt_async`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ parts }),
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`API ${res.status}: ${text}`)
+  }
+}
+
+export async function abortSession(sessionID: string) {
+  return request<boolean>(`/session/${sessionID}/abort`, { method: 'POST' })
+}
+
+export function subscribeEvents(
+  _sessionID: string,
+  onEvent: (event: { type: string; properties: Record<string, unknown> }) => void,
+) {
+  const url = `${API_BASE_URL}/event?directory=${encodeURIComponent(
+    window.__OPENCODE_DIR__ || '',
+  )}`
+  const es = new EventSource(url)
+  es.onmessage = (e) => {
+    try {
+      const data = JSON.parse(e.data)
+      onEvent(data)
+    } catch { /* ignore */ }
+  }
+  es.onerror = () => {
+    // auto-reconnect is built into EventSource
+  }
+  return () => es.close()
+}
+
+// Extend window for directory config
+declare global {
+  interface Window {
+    __OPENCODE_DIR__?: string
+  }
+}
