@@ -386,6 +386,41 @@ export namespace Server {
           return c.json(skills)
         },
       )
+      .put(
+        "/skill/:name/toggle",
+        describeRoute({
+          summary: "Toggle skill",
+          description: "Enable or disable a skill by name.",
+          operationId: "app.skill.toggle",
+          responses: {
+            200: {
+              description: "Updated enabled state",
+              content: {
+                "application/json": {
+                  schema: resolver(z.object({ name: z.string(), enabled: z.boolean() })),
+                },
+              },
+            },
+          },
+        }),
+        validator(
+          "json",
+          z.object({
+            enabled: z.boolean(),
+          }),
+        ),
+        async (c) => {
+          const name = c.req.param("name")
+          const { enabled } = c.req.valid("json")
+          const settings = await Settings.get()
+          const current = settings.enabled_skills ?? []
+          const next = enabled
+            ? [...new Set([...current, name])]
+            : current.filter((s: string) => s !== name)
+          await Settings.update({ enabled_skills: next })
+          return c.json({ name, enabled })
+        },
+      )
       .get(
         "/plugin",
         describeRoute({
