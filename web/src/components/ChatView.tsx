@@ -3,11 +3,13 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
   getMessages,
-  sendMessageAsync,
+  sendMessageAsyncWithOptions,
   abortSession,
   subscribeEvents,
+  listAgents,
+  listProviders,
 } from '../api'
-import type { Session, MessageWithParts, Part } from '../api'
+import type { Session, MessageWithParts, Part, AgentInfo, ProviderInfo } from '../api'
 import { toast } from './Toast'
 
 interface Props {
@@ -20,6 +22,10 @@ export function ChatView({ session }: Props) {
   const [files, setFiles] = useState<File[]>([])
   const [sending, setSending] = useState(false)
   const [streaming, setStreaming] = useState(false)
+  const [agents, setAgents] = useState<AgentInfo[]>([])
+  const [providers, setProviders] = useState<ProviderInfo[]>([])
+  const [selectedAgent, setSelectedAgent] = useState('')
+  const [selectedModel, setSelectedModel] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -29,6 +35,29 @@ export function ChatView({ session }: Props) {
       .then(setMessages)
       .catch(console.error)
   }, [session.id])
+
+  // Load agents and providers
+  useEffect(() => {
+    listAgents()
+      .then((list) => {
+        const visible = list.filter((a) => a.mode !== 'subagent')
+        setAgents(visible)
+        if (!selectedAgent && visible.length > 0) {
+          setSelectedAgent(visible.find((a) => a.name === 'build')?.name ?? visible[0].name)
+        }
+      })
+      .catch(console.error)
+    listProviders()
+      .then((data) => {
+        setProviders(data.all)
+        if (!selectedModel && data.all.length > 0) {
+          const first = data.all[0]
+          const firstModel = Object.keys(first.models)[0]
+          if (firstModel) setSelectedModel(`${first.id}/${firstModel}`)
+        }
+      })
+      .catch(console.error)
+  }, [])
 
   // Subscribe to SSE events for real-time updates
   useEffect(() => {
@@ -111,7 +140,13 @@ export function ChatView({ session }: Props) {
       const prompt = trimmed || '请分析上传的文件内容，生成详细的分析报告。'
       parts.push({ type: 'text', text: prompt })
 
-      await sendMessageAsync(session.id, parts)
+      await sendMessageAsyncWithOptions(session.id, parts, {
+        agent: selectedAgent || undefined,
+        model: selectedModel ? {
+          providerID: selectedModel.split('/')[0],
+          modelID: selectedModel.split('/').slice(1).join('/'),
+        } : undefined,
+      })
 
       setInput('')
       setFiles([])
@@ -157,6 +192,38 @@ export function ChatView({ session }: Props) {
       <div className="chat-header">
         <h2>{session.title || '未命名会话'}</h2>
         <span className="session-id">{session.id}</span>
+        <div className="chat-selectors">
+          {agents.length > 0 && (
+            <select
+              className="chat-select"
+              value={selectedAgent}
+              onChange={(e) => setSelectedAgent(e.target.value)}
+              title="Agent 模式"
+            >
+              {agents.map((a) => (
+                <option key={a.name} value={a.name}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
+          )}
+          {providers.length > 0 && (
+            <select
+              className="chat-select"
+              value={selectedModel}
+              onChange={(e) => setSelectedModel(e.target.value)}
+              title="Model"
+            >
+              {providers.map((p) =>
+                Object.values(p.models).map((m) => (
+                  <option key={`${p.id}/${m.id}`} value={`${p.id}/${m.id}`}>
+                    {m.name || m.id}
+                  </option>
+                )),
+              )}
+            </select>
+          )}
+        </div>
       </div>
 
       <div className="messages">
