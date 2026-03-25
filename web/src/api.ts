@@ -1,10 +1,37 @@
 export const API_BASE_URL = '/api'
 
+let authToken: string | null = localStorage.getItem('opencode-auth-token')
+
+export function setAuth(username: string, password: string) {
+  authToken = btoa(`${username}:${password}`)
+  localStorage.setItem('opencode-auth-token', authToken)
+}
+
+export function clearAuth() {
+  authToken = null
+  localStorage.removeItem('opencode-auth-token')
+}
+
+export function hasAuth() {
+  return authToken !== null
+}
+
+function authHeaders(): Record<string, string> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (authToken) headers['Authorization'] = `Basic ${authToken}`
+  return headers
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE_URL}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders(),
     ...options,
   })
+  if (res.status === 401) {
+    clearAuth()
+    window.location.reload()
+    throw new Error('认证失败，请重新登录')
+  }
   if (!res.ok) {
     const text = await res.text()
     throw new Error(`API ${res.status}: ${text}`)
@@ -87,7 +114,7 @@ export async function sendMessage(
 ) {
   const res = await fetch(`${API_BASE_URL}/session/${sessionID}/message`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders(),
     body: JSON.stringify({ parts }),
   })
   if (!res.ok) {
@@ -178,7 +205,7 @@ export async function sendMessageAsyncWithOptions(
 ) {
   const res = await fetch(`${API_BASE_URL}/session/${sessionID}/prompt_async`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders(),
     body: JSON.stringify({ parts, ...options }),
   })
   if (!res.ok) {
