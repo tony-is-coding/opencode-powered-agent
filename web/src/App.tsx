@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Navigate, Outlet, Route, Routes } from 'react-router-dom'
 import { healthCheck } from './api'
+import { ToastContainer } from './components/Toast'
 import { NewTaskPage } from './pages/NewTaskPage'
 import { SessionsPage } from './pages/SessionsPage'
 import { SkillsPage } from './pages/SkillsPage'
@@ -64,6 +65,7 @@ function AppLayout({
       <div className="route-view">
         <Outlet />
       </div>
+      <ToastContainer />
     </div>
   )
 }

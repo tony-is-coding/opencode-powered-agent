@@ -8,6 +8,7 @@ import {
   subscribeEvents,
 } from '../api'
 import type { Session, MessageWithParts, Part } from '../api'
+import { toast } from './Toast'
 
 interface Props {
   session: Session
@@ -122,7 +123,7 @@ export function ChatView({ session }: Props) {
       }, 500)
     } catch (e) {
       console.error('Send failed', e)
-      alert(`发送失败: ${e instanceof Error ? e.message : e}`)
+      toast(`发送失败: ${e instanceof Error ? e.message : e}`)
       setSending(false)
       setStreaming(false)
     }

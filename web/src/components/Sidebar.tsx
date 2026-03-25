@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { listSessions, createSession, deleteSession } from '../api'
 import type { Session } from '../api'
 import type { Dispatch, MouseEvent, SetStateAction } from 'react'
+import { toast } from './Toast'
 
 interface Props {
   sessions: Session[]
@@ -30,7 +31,7 @@ export function Sidebar({ sessions, setSessions, activeSession, setActiveSession
       setActiveSession(session)
     } catch (e) {
       console.error('Failed to create session', e)
-      alert('创建会话失败')
+      toast('创建会话失败')
     }
   }
 
