@@ -1,4 +1,28 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "model": "anthropic/claude-sonnet-4-5"
+  "model": "local-proxy/claude-sonnet-4-6",
+  "provider": {
+    "local-proxy": {
+      "name": "Local Proxy",
+      "env": ["LOCAL_PROXY_API_KEY"],
+      "options": {
+        "baseURL": "http://127.0.0.1:8000/v1"
+      },
+      "models": {
+        "claude-sonnet-4-6": {
+          "name": "Claude Sonnet 4.6 (Local)",
+          "npm": "@ai-sdk/openai-compatible",
+          "limit": {
+            "context": 200000,
+            "output": 64000
+          },
+          "capabilities": {
+            "toolcall": true,
+            "reasoning": false,
+            "input": { "text": true, "image": true }
+          }
+        }
+      }
+    }
+  }
 }

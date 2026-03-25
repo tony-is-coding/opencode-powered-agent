@@ -35,6 +35,11 @@ if (process.env.ANTHROPIC_AUTH_TOKEN && !process.env.ANTHROPIC_API_KEY) {
   process.env.ANTHROPIC_API_KEY = process.env.ANTHROPIC_AUTH_TOKEN
 }
 
+// Map ANTHROPIC_AUTH_TOKEN → LOCAL_PROXY_API_KEY for local OpenAI-compatible proxy
+if (process.env.ANTHROPIC_AUTH_TOKEN && !process.env.LOCAL_PROXY_API_KEY) {
+  process.env.LOCAL_PROXY_API_KEY = process.env.ANTHROPIC_AUTH_TOKEN
+}
+
 const port = Number(process.env.PORT ?? 4096)
 const hostname = process.env.HOST ?? "0.0.0.0"
 
