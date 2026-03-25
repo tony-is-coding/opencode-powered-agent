@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { API_BASE_URL, type Skill } from '../api'
+import { toast } from '../components/Toast'
 
 type SkillCardProps = {
   skill: Skill
@@ -105,12 +106,29 @@ export function SkillsPage() {
     })
   }, [search, skills])
 
-  function handleToggle(skillId: string) {
+  async function handleToggle(skillId: string) {
+    const skill = skills.find((s) => s.id === skillId)
+    if (!skill) return
+    const newEnabled = !skill.enabled
     setSkills((currentSkills) =>
-      currentSkills.map((skill) =>
-        skill.id === skillId ? { ...skill, enabled: !skill.enabled } : skill,
+      currentSkills.map((s) =>
+        s.id === skillId ? { ...s, enabled: newEnabled } : s,
       ),
     )
+    try {
+      await fetch(`${API_BASE_URL}/skill/${encodeURIComponent(skill.name)}/toggle`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: newEnabled }),
+      })
+    } catch {
+      setSkills((currentSkills) =>
+        currentSkills.map((s) =>
+          s.id === skillId ? { ...s, enabled: !newEnabled } : s,
+        ),
+      )
+      toast('切换 Skill 状态失败')
+    }
   }
 
   return (
