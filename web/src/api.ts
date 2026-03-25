@@ -142,3 +142,47 @@ declare global {
     __OPENCODE_DIR__?: string
   }
 }
+
+// --- Agent & Provider ---
+
+export interface AgentInfo {
+  name: string
+  description?: string
+  mode: string
+}
+
+export interface ProviderModel {
+  id: string
+  providerID: string
+  name: string
+}
+
+export interface ProviderInfo {
+  id: string
+  name: string
+  models: Record<string, ProviderModel>
+}
+
+export async function listAgents() {
+  return request<AgentInfo[]>('/agent')
+}
+
+export async function listProviders() {
+  return request<{ all: ProviderInfo[] }>('/provider')
+}
+
+export async function sendMessageAsyncWithOptions(
+  sessionID: string,
+  parts: Array<{ type: string; [key: string]: unknown }>,
+  options?: { agent?: string; model?: { providerID: string; modelID: string } },
+) {
+  const res = await fetch(`${API_BASE_URL}/session/${sessionID}/prompt_async`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ parts, ...options }),
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`API ${res.status}: ${text}`)
+  }
+}

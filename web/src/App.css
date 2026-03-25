@@ -344,10 +344,33 @@ a {
   align-items: center;
   gap: 1rem;
   background: rgba(255, 255, 255, 0.02);
+  flex-wrap: wrap;
 }
 
 .chat-header h2 {
   font-size: 1rem;
+}
+
+.chat-selectors {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.chat-select {
+  padding: 6px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 0.78rem;
+  cursor: pointer;
+  max-width: 200px;
+}
+
+.chat-select:focus {
+  outline: none;
+  border-color: var(--accent);
 }
 
 .session-id {
