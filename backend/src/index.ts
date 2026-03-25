@@ -30,6 +30,11 @@ process.env.AGENT = "1"
 process.env.OPENCODE = "1"
 process.env.OPENCODE_PID = String(process.pid)
 
+// Map ANTHROPIC_AUTH_TOKEN → ANTHROPIC_API_KEY for @ai-sdk/anthropic compatibility
+if (process.env.ANTHROPIC_AUTH_TOKEN && !process.env.ANTHROPIC_API_KEY) {
+  process.env.ANTHROPIC_API_KEY = process.env.ANTHROPIC_AUTH_TOKEN
+}
+
 const port = Number(process.env.PORT ?? 4096)
 const hostname = process.env.HOST ?? "0.0.0.0"
 
