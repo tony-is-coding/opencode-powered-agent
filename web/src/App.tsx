@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Navigate, Outlet, Route, Routes } from 'react-router-dom'
-import { healthCheck } from './api'
+import { healthCheck, hasAuth, clearAuth } from './api'
 import { ToastContainer } from './components/Toast'
+import { LoginPage } from './pages/LoginPage'
 import { NewTaskPage } from './pages/NewTaskPage'
 import { SessionsPage } from './pages/SessionsPage'
 import { SkillsPage } from './pages/SkillsPage'
@@ -59,6 +60,11 @@ function AppLayout({
           <button className="theme-toggle" onClick={onToggleTheme} type="button">
             {theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
           </button>
+          {hasAuth() && (
+            <button className="btn-logout" onClick={() => { clearAuth(); window.location.reload() }} type="button">
+              退出
+            </button>
+          )}
         </div>
       </header>
 
@@ -72,7 +78,7 @@ function AppLayout({
 
 function App() {
   const [theme, setTheme] = useState<Theme>(getInitialTheme)
-  const [healthy, setHealthy] = useState(false)
+  const [status, setStatus] = useState<'loading' | 'needsAuth' | 'ready'>('loading')
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
@@ -81,27 +87,32 @@ function App() {
 
   useEffect(() => {
     healthCheck()
-      .then(() => setHealthy(true))
-      .catch(() => setHealthy(false))
+      .then(() => setStatus('ready'))
+      .catch((err) => {
+        if (err instanceof Error && err.message.includes('401')) {
+          setStatus('needsAuth')
+        } else if (hasAuth()) {
+          // Has stored auth but server might not require it
+          setStatus('ready')
+        } else {
+          setStatus('needsAuth')
+        }
+      })
   }, [])
 
-  if (!healthy) {
+  if (status === 'loading') {
     return (
       <div className="app-loading">
         <div className="loading-card">
           <div className="spinner" />
-          <p>正在连接后端服务 (localhost:4096)...</p>
-          <button
-            onClick={() => {
-              healthCheck().then(() => setHealthy(true)).catch(() => {})
-            }}
-            type="button"
-          >
-            重试
-          </button>
+          <p>正在连接后端服务...</p>
         </div>
       </div>
     )
+  }
+
+  if (status === 'needsAuth') {
+    return <LoginPage onLogin={() => setStatus('ready')} />
   }
 
   return (
