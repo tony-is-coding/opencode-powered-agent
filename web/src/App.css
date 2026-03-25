@@ -236,6 +236,26 @@ a {
   margin-bottom: 0.75rem;
 }
 
+.sidebar-search {
+  padding: 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.search-input {
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 0.82rem;
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
 .btn-new {
   width: 100%;
   padding: 0.7rem;
@@ -292,6 +312,24 @@ a {
   margin-top: 4px;
   font-size: 0.75rem;
   color: var(--text-muted);
+}
+
+.session-actions {
+  display: flex;
+  gap: 2px;
+}
+
+.btn-export {
+  background: transparent;
+  color: var(--text-muted);
+  padding: 2px 6px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+}
+
+.btn-export:hover {
+  background: var(--accent);
+  color: white;
 }
 
 .btn-delete {
