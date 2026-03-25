@@ -1,0 +1,15 @@
+{
+  "name": "opencode-powered-agent",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -n backend,web -c blue,green \"cd backend && bun run dev\" \"cd web && npm run dev\"",
+    "dev:backend": "cd backend && bun run dev",
+    "dev:web": "cd web && npm run dev",
+    "build:web": "cd web && npm run build",
+    "typecheck": "concurrently -n backend,web \"cd backend && bunx tsc --noEmit\" \"cd web && npx tsc --noEmit\"",
+    "install:all": "cd backend && bun install && cd ../web && npm install"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
