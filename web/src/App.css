@@ -1551,6 +1551,36 @@ a {
   }
 }
 
+/* ── Connection Indicator ── */
+
+.connection-bar {
+  padding: 6px 16px;
+  text-align: center;
+  font-size: 0.78rem;
+  font-weight: 500;
+  animation: slide-down 0.2s ease;
+}
+
+.connection-connected {
+  background: rgba(34, 197, 94, 0.12);
+  color: var(--success);
+}
+
+.connection-reconnecting {
+  background: rgba(245, 158, 11, 0.12);
+  color: var(--warning);
+}
+
+.connection-disconnected {
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--danger);
+}
+
+@keyframes slide-down {
+  from { transform: translateY(-100%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
 /* ── Modal ── */
 
 .modal-overlay {

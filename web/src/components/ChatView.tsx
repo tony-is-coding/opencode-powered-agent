@@ -11,6 +11,9 @@ import {
 } from '../api'
 import type { Session, MessageWithParts, Part, AgentInfo, ProviderInfo } from '../api'
 import { toast } from './Toast'
+import { ConnectionIndicator } from './ConnectionIndicator'
+
+type ConnectionStatus = 'connected' | 'reconnecting' | 'disconnected'
 
 interface Props {
   session: Session
@@ -26,6 +29,7 @@ export function ChatView({ session }: Props) {
   const [providers, setProviders] = useState<ProviderInfo[]>([])
   const [selectedAgent, setSelectedAgent] = useState('')
   const [selectedModel, setSelectedModel] = useState('')
+  const [sseStatus, setSseStatus] = useState<ConnectionStatus>('disconnected')
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -73,6 +77,11 @@ export function ChatView({ session }: Props) {
       if (event.type === 'session.idle') {
         setStreaming(false)
         setSending(false)
+        getMessages(session.id).then(setMessages).catch(console.error)
+      }
+    }, (status) => {
+      setSseStatus(status)
+      if (status === 'connected') {
         getMessages(session.id).then(setMessages).catch(console.error)
       }
     })
@@ -189,6 +198,7 @@ export function ChatView({ session }: Props) {
 
   return (
     <div className="chat-view">
+      <ConnectionIndicator status={sseStatus} />
       <div className="chat-header">
         <h2>{session.title || '未命名会话'}</h2>
         <span className="session-id">{session.id}</span>

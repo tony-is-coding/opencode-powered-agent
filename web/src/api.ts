@@ -146,11 +146,13 @@ export async function abortSession(sessionID: string) {
 export function subscribeEvents(
   _sessionID: string,
   onEvent: (event: { type: string; properties: Record<string, unknown> }) => void,
+  onStatus?: (status: 'connected' | 'reconnecting' | 'disconnected') => void,
 ) {
   const url = `${API_BASE_URL}/event?directory=${encodeURIComponent(
     window.__OPENCODE_DIR__ || '',
   )}`
   const es = new EventSource(url)
+  es.onopen = () => onStatus?.('connected')
   es.onmessage = (e) => {
     try {
       const data = JSON.parse(e.data)
@@ -158,7 +160,7 @@ export function subscribeEvents(
     } catch { /* ignore */ }
   }
   es.onerror = () => {
-    // auto-reconnect is built into EventSource
+    onStatus?.(es.readyState === EventSource.CONNECTING ? 'reconnecting' : 'disconnected')
   }
   return () => es.close()
 }
