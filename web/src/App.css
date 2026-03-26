@@ -581,9 +581,20 @@ a {
 
 .tool-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  gap: 0.5rem;
   font-weight: 500;
+}
+
+.tool-duration {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 400;
+  margin-left: auto;
+}
+
+.tool-status {
+  margin-left: 0.25rem;
 }
 
 .status-completed {

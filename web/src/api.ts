@@ -1,5 +1,8 @@
 export const API_BASE_URL = '/api'
 
+// Tool timing tracking - stores duration per part ID
+export const toolTimings = new Map<string, { startTime: number; duration?: number }>()
+
 let authToken: string | null = localStorage.getItem('opencode-auth-token')
 
 export function setAuth(username: string, password: string) {
@@ -156,6 +159,21 @@ export function subscribeEvents(
   es.onmessage = (e) => {
     try {
       const data = JSON.parse(e.data)
+      // Track tool timing based on part status changes
+      if (data.type === 'message.part.updated') {
+        const part = data.properties?.part
+        if (part?.type === 'tool') {
+          const status = part.state?.status
+          if (status === 'running') {
+            toolTimings.set(part.id, { startTime: Date.now() })
+          } else if (status === 'completed' || status === 'error') {
+            const timing = toolTimings.get(part.id)
+            if (timing && !timing.duration) {
+              timing.duration = Date.now() - timing.startTime
+            }
+          }
+        }
+      }
       onEvent(data)
     } catch { /* ignore */ }
   }

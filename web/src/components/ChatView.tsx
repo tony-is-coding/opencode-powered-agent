@@ -8,6 +8,7 @@ import {
   subscribeEvents,
   listAgents,
   listProviders,
+  toolTimings,
 } from '../api'
 import type { Session, MessageWithParts, Part, AgentInfo, ProviderInfo } from '../api'
 import { toast } from './Toast'
@@ -354,6 +355,10 @@ function MessageBubble({ message, onRetry }: { message: MessageWithParts; onRetr
   )
 }
 
+function formatDuration(ms: number): string {
+  return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`
+}
+
 function PartView({ part }: { part: Part }) {
   switch (part.type) {
     case 'text':
@@ -371,11 +376,16 @@ function PartView({ part }: { part: Part }) {
           <span className="file-mime">({part.mime})</span>
         </div>
       )
-    case 'tool':
+    case 'tool': {
+      const timing = toolTimings.get(part.id)
+      const showDuration = timing?.duration && (part.state?.status === 'completed' || part.state?.status === 'error')
       return (
         <div className={`part-tool ${part.state?.status || ''}`}>
           <div className="tool-header">
             🔧 {part.tool}
+            {showDuration && (
+              <span className="tool-duration">{formatDuration(timing.duration!)}</span>
+            )}
             <span className={`tool-status status-${part.state?.status}`}>
               {part.state?.status === 'completed' ? '✓' :
                part.state?.status === 'error' ? '✗' :
@@ -392,6 +402,7 @@ function PartView({ part }: { part: Part }) {
           )}
         </div>
       )
+    }
     case 'reasoning':
       return (
         <details className="part-reasoning">
