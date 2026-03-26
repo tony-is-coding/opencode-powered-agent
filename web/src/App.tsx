@@ -8,6 +8,7 @@ import { SessionsPage } from './pages/SessionsPage'
 import { SkillsPage } from './pages/SkillsPage'
 import { TaskDetailPage } from './pages/TaskDetailPage'
 import { DocumentsPage } from './pages/DocumentsPage'
+import { SettingsPage } from './pages/SettingsPage'
 import './App.css'
 
 type Theme = 'light' | 'dark'
@@ -18,6 +19,7 @@ const navItems = [
   { to: '/sessions', label: 'Sessions' },
   { to: '/documents', label: 'Documents' },
   { to: '/skills', label: 'Skills' },
+  { to: '/settings', label: 'Settings' },
   { to: '/tasks/new', label: 'New Task' },
 ]
 
@@ -135,6 +137,7 @@ function App() {
         <Route path="/sessions" element={<SessionsPage />} />
         <Route path="/documents" element={<DocumentsPage />} />
         <Route path="/skills" element={<SkillsPage />} />
+        <Route path="/settings" element={<SettingsPage />} />
         <Route path="/tasks/new" element={<NewTaskPage />} />
         <Route path="/tasks/:id" element={<TaskDetailPage />} />
         <Route path="*" element={<Navigate replace to="/sessions" />} />
