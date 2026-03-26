@@ -183,6 +183,44 @@ export function subscribeEvents(
   return () => es.close()
 }
 
+// --- Document API ---
+
+export interface DocumentFile {
+  name: string
+  path: string
+  type: 'file' | 'directory'
+  size?: number
+  modified?: number
+}
+
+export async function listDocuments(recursive = true) {
+  return request<DocumentFile[]>(`/document?recursive=${recursive}`)
+}
+
+export async function getDocument(filePath: string) {
+  return request<{ path: string; content: string }>(`/document/${filePath}`)
+}
+
+export async function updateDocument(filePath: string, content: string) {
+  return request<{ success: boolean }>(`/document/${filePath}`, {
+    method: 'PUT',
+    body: JSON.stringify({ content }),
+  })
+}
+
+export async function createDocument(filePath: string, content = '') {
+  return request<{ success: boolean; path: string }>('/document', {
+    method: 'POST',
+    body: JSON.stringify({ path: filePath, content }),
+  })
+}
+
+export async function deleteDocument(filePath: string) {
+  return request<{ success: boolean }>(`/document/${filePath}`, {
+    method: 'DELETE',
+  })
+}
+
 // Extend window for directory config
 declare global {
   interface Window {
