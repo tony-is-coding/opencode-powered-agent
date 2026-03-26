@@ -243,8 +243,21 @@ export function ChatView({ session }: Props) {
             <p className="hint">支持 txt, md, csv, json, xml, yaml, log, 代码文件等</p>
           </div>
         )}
-        {messages.map((msg) => (
-          <MessageBubble key={msg.info.id} message={msg} />
+        {messages.map((msg, idx) => (
+          <MessageBubble
+            key={msg.info.id}
+            message={msg}
+            onRetry={msg.info.role === 'assistant' ? () => {
+              const lastUser = messages.slice(0, idx).reverse().find((m) => m.info.role === 'user')
+              if (!lastUser) return
+              const textPart = lastUser.parts.find((p) => p.type === 'text')
+              if (!textPart?.text) return
+              sendMessageAsyncWithOptions(session.id, [{ type: 'text', text: textPart.text }], {
+                agent: selectedAgent || undefined,
+              }).catch((e) => toast(`重试失败: ${e instanceof Error ? e.message : e}`))
+              setStreaming(true)
+            } : undefined}
+          />
         ))}
         {streaming && (
           <div className="message assistant">
@@ -311,9 +324,10 @@ export function ChatView({ session }: Props) {
   )
 }
 
-function MessageBubble({ message }: { message: MessageWithParts }) {
+function MessageBubble({ message, onRetry }: { message: MessageWithParts; onRetry?: () => void }) {
   const { info, parts } = message
   const isUser = info.role === 'user'
+  const hasError = !isUser && parts.some((p) => p.type === 'tool' && p.state?.status === 'error')
 
   return (
     <div className={`message ${isUser ? 'user' : 'assistant'}`}>
@@ -322,10 +336,17 @@ function MessageBubble({ message }: { message: MessageWithParts }) {
         {parts.map((part) => (
           <PartView key={part.id} part={part} />
         ))}
-        {!isUser && info.tokens && (
+        {!isUser && (
           <div className="message-meta">
-            tokens: {info.tokens.input}↑ {info.tokens.output}↓
-            {info.cost ? ` · $${info.cost.toFixed(4)}` : ''}
+            {info.tokens && (
+              <span className="meta-tokens">
+                {info.tokens.input}↑ {info.tokens.output}↓
+                {info.cost ? ` · $${info.cost.toFixed(4)}` : ''}
+              </span>
+            )}
+            {hasError && onRetry && (
+              <button className="btn-retry" onClick={onRetry}>重试</button>
+            )}
           </div>
         )}
       </div>
@@ -363,9 +384,9 @@ function PartView({ part }: { part: Part }) {
           </div>
           {part.state?.title && <div className="tool-title">{part.state.title}</div>}
           {part.state?.error && <div className="tool-error">{part.state.error}</div>}
-          {part.state?.output && part.state.output.length < 2000 && (
+          {part.state?.output && (
             <details className="tool-output">
-              <summary>输出</summary>
+              <summary>输出 ({part.state.output.length > 1000 ? `${Math.round(part.state.output.length / 1000)}K chars` : `${part.state.output.length} chars`})</summary>
               <pre>{part.state.output}</pre>
             </details>
           )}
