@@ -308,3 +308,48 @@ export async function updateSettings(patch: Partial<AppSettings>) {
     body: JSON.stringify(patch),
   })
 }
+
+// --- Schedule API ---
+
+export interface ScheduleTask {
+  id: string
+  name: string
+  description?: string
+  cron: string
+  command: string
+  enabled: boolean
+  last_run?: number | null
+  next_run?: number | null
+  time_created: number
+  time_updated: number
+}
+
+export async function listSchedules() {
+  return request<ScheduleTask[]>('/schedule')
+}
+
+export async function createSchedule(data: { name: string; description?: string; cron: string; command: string; enabled?: boolean }) {
+  return request<ScheduleTask>('/schedule', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function updateSchedule(id: string, data: Partial<{ name: string; description: string; cron: string; command: string; enabled: boolean }>) {
+  return request<ScheduleTask>(`/schedule/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function deleteSchedule(id: string) {
+  return request<{ success: boolean }>(`/schedule/${id}`, {
+    method: 'DELETE',
+  })
+}
+
+export async function triggerSchedule(id: string) {
+  return request<{ success: boolean; triggered_at: number }>(`/schedule/${id}/trigger`, {
+    method: 'POST',
+  })
+}
