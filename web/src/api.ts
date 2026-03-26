@@ -271,3 +271,40 @@ export async function sendMessageAsyncWithOptions(
     throw new Error(`API ${res.status}: ${text}`)
   }
 }
+
+// --- Config & Settings ---
+
+export interface AppConfig {
+  model?: string
+  small_model?: string
+  disabled_providers?: string[]
+  enabled_providers?: string[]
+  [key: string]: unknown
+}
+
+export interface AppSettings {
+  enabled_skills?: string[]
+  enabled_plugins?: string[]
+}
+
+export async function getConfig() {
+  return request<AppConfig>('/config')
+}
+
+export async function updateConfig(patch: Partial<AppConfig>) {
+  return request<AppConfig>('/config', {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  })
+}
+
+export async function getSettings() {
+  return request<AppSettings>('/settings')
+}
+
+export async function updateSettings(patch: Partial<AppSettings>) {
+  return request<AppSettings>('/settings', {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  })
+}
