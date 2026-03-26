@@ -1,15 +1,26 @@
 import { useEffect, useMemo, useState } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { API_BASE_URL, type Skill } from '../api'
 import { toast } from '../components/Toast'
+import { authHeaders } from '../api'
+
+interface SkillDetail {
+  name: string
+  description: string
+  location: string
+  content: string
+}
 
 type SkillCardProps = {
   skill: Skill
   onToggle: (skillId: string) => void
+  onDetail: (name: string) => void
 }
 
-function SkillCard({ skill, onToggle }: SkillCardProps) {
+function SkillCard({ skill, onToggle, onDetail }: SkillCardProps) {
   return (
-    <article className="skills-card">
+    <article className="skills-card" onClick={() => onDetail(skill.name)}>
       <div className="skills-card__header">
         <div>
           <div className="skills-card__status-row">
@@ -20,7 +31,7 @@ function SkillCard({ skill, onToggle }: SkillCardProps) {
           <h3>{skill.name}</h3>
         </div>
 
-        <label className="skills-switch" aria-label={`切换 ${skill.name} 的启用状态`}>
+        <label className="skills-switch" aria-label={`切换 ${skill.name} 的启用状态`} onClick={(e) => e.stopPropagation()}>
           <input
             checked={skill.enabled}
             onChange={() => onToggle(skill.id)}
@@ -47,11 +58,61 @@ function SkillCard({ skill, onToggle }: SkillCardProps) {
   )
 }
 
+function SkillDetailModal({ name, onClose }: { name: string; onClose: () => void }) {
+  const [detail, setDetail] = useState<SkillDetail | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    setLoading(true)
+    fetch(`${API_BASE_URL}/skill/${encodeURIComponent(name)}`, {
+      headers: authHeaders(),
+    })
+      .then((r) => r.json())
+      .then((data) => setDetail(data as SkillDetail))
+      .catch(() => toast('加载 Skill 详情失败'))
+      .finally(() => setLoading(false))
+  }, [name])
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [onClose])
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2>{name}</h2>
+          <button className="modal-close" onClick={onClose}>✕</button>
+        </div>
+        {loading ? (
+          <div className="modal-loading"><div className="spinner" /></div>
+        ) : detail ? (
+          <div className="modal-body">
+            <p className="modal-location">{detail.location}</p>
+            <div className="modal-markdown">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {detail.content}
+              </ReactMarkdown>
+            </div>
+          </div>
+        ) : (
+          <p className="modal-error">Skill not found</p>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export function SkillsPage() {
   const [skills, setSkills] = useState<Skill[]>([])
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [detailName, setDetailName] = useState<string | null>(null)
 
   useEffect(() => {
     let active = true
@@ -61,8 +122,8 @@ export function SkillsPage() {
         setLoading(true)
         setError(null)
 
-        const response = await fetch(`${API_BASE_URL}/skill`, {
-          headers: { 'Content-Type': 'application/json' },
+        const response = await fetch(`${API_BASE_URL}/skill?all=true`, {
+          headers: authHeaders(),
         })
 
         if (!response.ok) {
@@ -118,7 +179,7 @@ export function SkillsPage() {
     try {
       await fetch(`${API_BASE_URL}/skill/${encodeURIComponent(skill.name)}/toggle`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders(),
         body: JSON.stringify({ enabled: newEnabled }),
       })
     } catch {
@@ -137,7 +198,7 @@ export function SkillsPage() {
         <div>
           <p className="skills-page__eyebrow">Skill Management</p>
           <h1>Skills</h1>
-          <p className="skills-page__subtitle">搜索并管理当前可用的 Skill。</p>
+          <p className="skills-page__subtitle">搜索并管理当前可用的 Skill。点击卡片查看详情。</p>
         </div>
 
         <div className="skills-page__summary">
@@ -178,9 +239,13 @@ export function SkillsPage() {
       ) : (
         <div className="skills-grid">
           {filteredSkills.map((skill) => (
-            <SkillCard key={skill.id} onToggle={handleToggle} skill={skill} />
+            <SkillCard key={skill.id} onToggle={handleToggle} onDetail={setDetailName} skill={skill} />
           ))}
         </div>
+      )}
+
+      {detailName && (
+        <SkillDetailModal name={detailName} onClose={() => setDetailName(null)} />
       )}
     </section>
   )

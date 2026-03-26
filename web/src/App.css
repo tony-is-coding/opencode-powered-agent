@@ -1551,6 +1551,127 @@ a {
   }
 }
 
+/* ── Modal ── */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.modal-content {
+  width: 100%;
+  max-width: 720px;
+  max-height: 80vh;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.3);
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--border);
+}
+
+.modal-header h2 {
+  font-size: 1.1rem;
+}
+
+.modal-close {
+  background: transparent;
+  color: var(--text-muted);
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 1rem;
+}
+
+.modal-close:hover {
+  background: var(--danger);
+  color: white;
+}
+
+.modal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 24px;
+}
+
+.modal-loading {
+  display: flex;
+  justify-content: center;
+  padding: 40px;
+}
+
+.modal-location {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-family: ui-monospace, monospace;
+  margin-bottom: 16px;
+  word-break: break-all;
+}
+
+.modal-markdown {
+  font-size: 0.88rem;
+  line-height: 1.7;
+}
+
+.modal-markdown h1 { font-size: 1.3rem; margin: 16px 0 8px; }
+.modal-markdown h2 { font-size: 1.1rem; margin: 14px 0 6px; }
+.modal-markdown h3 { font-size: 0.95rem; margin: 12px 0 4px; }
+
+.modal-markdown pre {
+  background: rgba(2, 6, 23, 0.72);
+  padding: 12px;
+  border-radius: 8px;
+  overflow-x: auto;
+  font-size: 0.8rem;
+  margin: 8px 0;
+}
+
+.modal-markdown code {
+  background: rgba(2, 6, 23, 0.72);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.84em;
+}
+
+.modal-markdown pre code {
+  background: transparent;
+  padding: 0;
+}
+
+.modal-markdown ul, .modal-markdown ol {
+  padding-left: 20px;
+  margin: 6px 0;
+}
+
+.modal-error {
+  padding: 20px 24px;
+  color: var(--danger);
+}
+
+.skills-card {
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.1s;
+}
+
+.skills-card:hover {
+  border-color: rgba(59, 130, 246, 0.3);
+  transform: translateY(-1px);
+}
+
 /* ── Login Page ── */
 
 .login-page {

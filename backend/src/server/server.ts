@@ -386,6 +386,31 @@ export namespace Server {
           return c.json(skills)
         },
       )
+      .get(
+        "/skill/:name",
+        describeRoute({
+          summary: "Get skill detail",
+          description: "Get a single skill by name, including its full SKILL.md content.",
+          operationId: "app.skill.get",
+          responses: {
+            200: {
+              description: "Skill detail",
+              content: {
+                "application/json": {
+                  schema: resolver(Skill.Info),
+                },
+              },
+            },
+            ...errors(404),
+          },
+        }),
+        async (c) => {
+          const name = c.req.param("name")
+          const skill = await Skill.get(name)
+          if (!skill) return c.json({ error: "Skill not found" }, 404)
+          return c.json(skill)
+        },
+      )
       .put(
         "/skill/:name/toggle",
         describeRoute({

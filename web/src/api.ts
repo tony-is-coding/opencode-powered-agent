@@ -16,7 +16,7 @@ export function hasAuth() {
   return authToken !== null
 }
 
-function authHeaders(): Record<string, string> {
+export function authHeaders(): Record<string, string> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   if (authToken) headers['Authorization'] = `Basic ${authToken}`
   return headers
