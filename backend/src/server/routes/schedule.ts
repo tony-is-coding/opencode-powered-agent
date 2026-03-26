@@ -5,10 +5,7 @@ import { ScheduleTable } from "../../schedule/schedule.sql"
 import { Database, eq } from "../../storage/db"
 import { errors } from "../error"
 import { lazy } from "@/util/lazy"
-
-function generateId() {
-  return `sch_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
-}
+import { Identifier } from "@/id/id"
 
 function getNextRun(cron: string): number | null {
   // Simple next-minute calculation for interval-based cron
@@ -123,7 +120,7 @@ export const ScheduleRoutes = lazy(() =>
       ),
       async (c) => {
         const body = c.req.valid("json")
-        const id = generateId()
+        const id = Identifier.ascending("schedule")
         const now = Date.now()
         const nextRun = body.enabled ? getNextRun(body.cron) : null
 
