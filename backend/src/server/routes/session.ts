@@ -1,5 +1,5 @@
 import { Hono } from "hono"
-import { stream } from "hono/streaming"
+import { stream, streamSSE } from "hono/streaming"
 import { describeRoute, validator, resolver } from "hono-openapi"
 import { SessionID, MessageID, PartID } from "@/session/schema"
 import z from "zod"
@@ -17,10 +17,33 @@ import { Log } from "../../util/log"
 import { PermissionNext } from "@/permission/next"
 import { PermissionID } from "@/permission/schema"
 import { ModelID, ProviderID } from "@/provider/schema"
+import { Bus } from "@/bus"
 import { errors } from "../error"
 import { lazy } from "../../util/lazy"
 
 const log = Log.create({ service: "server" })
+const SessionStreamEvent = z.object({
+  type: z.string(),
+  properties: z.record(z.string(), z.unknown()),
+})
+
+function eventBelongsToSession(event: { type: string; properties?: Record<string, unknown> }, sessionID: SessionID) {
+  const properties = event.properties ?? {}
+  const direct = properties.sessionID ?? properties.sessionId ?? properties.session_id
+  if (typeof direct === "string") return direct === sessionID
+
+  const info = properties.info
+  if (info && typeof info === "object" && "sessionID" in info && typeof info.sessionID === "string") {
+    return info.sessionID === sessionID
+  }
+
+  const part = properties.part
+  if (part && typeof part === "object" && "sessionID" in part && typeof part.sessionID === "string") {
+    return part.sessionID === sessionID
+  }
+
+  return false
+}
 
 export const SessionRoutes = lazy(() =>
   new Hono()
@@ -820,6 +843,115 @@ export const SessionRoutes = lazy(() =>
       },
     )
     .post(
+      "/:sessionID/prompt_sse",
+      describeRoute({
+        summary: "Send message with SSE stream",
+        description: "Create and send a new message to a session, streaming session events back over SSE.",
+        operationId: "session.prompt_sse",
+        responses: {
+          200: {
+            description: "SSE event stream",
+            content: {
+              "text/event-stream": {
+                schema: resolver(SessionStreamEvent),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator(
+        "param",
+        z.object({
+          sessionID: SessionID.zod,
+        }),
+      ),
+      validator("json", SessionPrompt.PromptInput.omit({ sessionID: true })),
+      async (c) => {
+        c.header("X-Accel-Buffering", "no")
+        c.header("X-Content-Type-Options", "nosniff")
+        c.header("Cache-Control", "no-cache")
+
+        return streamSSE(c, async (stream) => {
+          const sessionID = c.req.valid("param").sessionID
+          const body = c.req.valid("json")
+
+          let settled = false
+          let heartbeat: ReturnType<typeof setInterval> | null = null
+          let unsubscribe = () => {}
+          let resolveDone: (() => void) | undefined
+          const done = new Promise<void>((resolve) => {
+            resolveDone = resolve
+          })
+
+          const finish = () => {
+            if (settled) return
+            settled = true
+            if (heartbeat) clearInterval(heartbeat)
+            unsubscribe()
+            resolveDone?.()
+          }
+
+          const writeEvent = async (event: z.infer<typeof SessionStreamEvent>) => {
+            if (settled) return
+            await stream.writeSSE({
+              data: JSON.stringify(event),
+            })
+          }
+
+          await writeEvent({
+            type: "stream.connected",
+            properties: {
+              sessionID,
+            },
+          })
+
+          unsubscribe = Bus.subscribeAll(async (event) => {
+            if (!eventBelongsToSession(event, sessionID)) return
+            await writeEvent(event)
+          })
+
+          heartbeat = setInterval(() => {
+            void writeEvent({
+              type: "server.heartbeat",
+              properties: {
+                sessionID,
+              },
+            })
+          }, 10_000)
+
+          stream.onAbort(() => {
+            finish()
+          })
+
+          SessionPrompt.prompt({ ...body, sessionID })
+            .then(async () => {
+              if (settled) return
+              await writeEvent({
+                type: "stream.done",
+                properties: {
+                  sessionID,
+                },
+              })
+              finish()
+            })
+            .catch(async (err: unknown) => {
+              log.error("prompt_sse failed", { sessionID, error: err })
+              await writeEvent({
+                type: "stream.error",
+                properties: {
+                  sessionID,
+                  message: err instanceof Error ? err.message : String(err),
+                },
+              })
+              finish()
+            })
+
+          await done
+        })
+      },
+    )
+    .post(
       "/:sessionID/prompt_async",
       describeRoute({
         summary: "Send async message",
@@ -846,7 +978,9 @@ export const SessionRoutes = lazy(() =>
         return stream(c, async () => {
           const sessionID = c.req.valid("param").sessionID
           const body = c.req.valid("json")
-          SessionPrompt.prompt({ ...body, sessionID })
+          SessionPrompt.prompt({ ...body, sessionID }).catch((err: unknown) => {
+            log.error("prompt_async failed", { sessionID, error: err })
+          })
         })
       },
     )

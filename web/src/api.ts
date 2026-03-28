@@ -133,7 +133,7 @@ export async function sendMessageAsync(
 ) {
   const res = await fetch(`${API_BASE_URL}/session/${sessionID}/prompt_async`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders(),
     body: JSON.stringify({ parts }),
   })
   if (!res.ok) {
@@ -154,33 +154,89 @@ export function subscribeEvents(
   const url = `${API_BASE_URL}/event?directory=${encodeURIComponent(
     window.__OPENCODE_DIR__ || '',
   )}`
-  const es = new EventSource(url)
-  es.onopen = () => onStatus?.('connected')
-  es.onmessage = (e) => {
+
+  let cancelled = false
+  let currentController: AbortController | null = null
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+
+  const connect = async () => {
+    if (cancelled) return
+    currentController = new AbortController()
+
     try {
-      const data = JSON.parse(e.data)
-      // Track tool timing based on part status changes
-      if (data.type === 'message.part.updated') {
-        const part = data.properties?.part
-        if (part?.type === 'tool') {
-          const status = part.state?.status
-          if (status === 'running') {
-            toolTimings.set(part.id, { startTime: Date.now() })
-          } else if (status === 'completed' || status === 'error') {
-            const timing = toolTimings.get(part.id)
-            if (timing && !timing.duration) {
-              timing.duration = Date.now() - timing.startTime
+      const res = await fetch(url, {
+        headers: authHeaders(),
+        signal: currentController.signal,
+      })
+
+      if (!res.ok || !res.body) {
+        if (!cancelled) {
+          onStatus?.('reconnecting')
+          reconnectTimer = setTimeout(connect, 2000)
+        }
+        return
+      }
+
+      onStatus?.('connected')
+
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (!cancelled) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() ?? ''
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          try {
+            const data = JSON.parse(line.slice(6))
+            // Backend sends { directory, payload: { type, properties } }
+            const event = data.payload ?? data
+            if (!event?.type) continue
+            // Track tool timing based on part status changes
+            if (event.type === 'message.part.updated') {
+              const part = event.properties?.part
+              if (part?.type === 'tool') {
+                const status = part.state?.status
+                if (status === 'running') {
+                  toolTimings.set(part.id, { startTime: Date.now() })
+                } else if (status === 'completed' || status === 'error') {
+                  const timing = toolTimings.get(part.id)
+                  if (timing && !timing.duration) {
+                    timing.duration = Date.now() - timing.startTime
+                  }
+                }
+              }
             }
-          }
+            onEvent(event)
+          } catch { /* ignore */ }
         }
       }
-      onEvent(data)
-    } catch { /* ignore */ }
+
+      if (!cancelled) {
+        onStatus?.('reconnecting')
+        reconnectTimer = setTimeout(connect, 2000)
+      }
+    } catch {
+      if (!cancelled) {
+        onStatus?.('reconnecting')
+        reconnectTimer = setTimeout(connect, 2000)
+      }
+    }
   }
-  es.onerror = () => {
-    onStatus?.(es.readyState === EventSource.CONNECTING ? 'reconnecting' : 'disconnected')
+
+  void connect()
+
+  return () => {
+    cancelled = true
+    if (reconnectTimer !== null) clearTimeout(reconnectTimer)
+    currentController?.abort()
   }
-  return () => es.close()
 }
 
 // --- Document API ---
@@ -248,12 +304,23 @@ export interface ProviderInfo {
   models: Record<string, ProviderModel>
 }
 
+export interface ProviderListResponse {
+  all: ProviderInfo[]
+  default: Record<string, string>
+  connected: string[]
+}
+
+export interface SessionEvent {
+  type: string
+  properties: Record<string, unknown>
+}
+
 export async function listAgents() {
   return request<AgentInfo[]>('/agent')
 }
 
 export async function listProviders() {
-  return request<{ all: ProviderInfo[] }>('/provider')
+  return request<ProviderListResponse>('/provider')
 }
 
 export async function sendMessageAsyncWithOptions(
@@ -269,6 +336,111 @@ export async function sendMessageAsyncWithOptions(
   if (!res.ok) {
     const text = await res.text()
     throw new Error(`API ${res.status}: ${text}`)
+  }
+}
+
+async function consumeSSEStream(
+  body: ReadableStream<Uint8Array>,
+  onEvent: (event: SessionEvent) => void,
+) {
+  const reader = body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  const parseBlock = (block: string) => {
+    const dataLines: string[] = []
+    for (const line of block.split('\n')) {
+      if (!line.startsWith('data:')) continue
+      dataLines.push(line.slice(5).trimStart())
+    }
+    if (dataLines.length === 0) return
+
+    const data = JSON.parse(dataLines.join('\n'))
+    const event = data.payload ?? data
+    if (!event?.type) return
+    onEvent(event as SessionEvent)
+  }
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+
+    buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n')
+
+    let boundary = buffer.indexOf('\n\n')
+    while (boundary >= 0) {
+      const block = buffer.slice(0, boundary)
+      buffer = buffer.slice(boundary + 2)
+      parseBlock(block)
+      boundary = buffer.indexOf('\n\n')
+    }
+  }
+
+  if (buffer.trim()) {
+    parseBlock(buffer)
+  }
+}
+
+export async function sendMessageStreamWithOptions(
+  sessionID: string,
+  parts: Array<{ type: string; [key: string]: unknown }>,
+  options?: { agent?: string; model?: { providerID: string; modelID: string } },
+  handlers?: {
+    signal?: AbortSignal
+    onEvent?: (event: SessionEvent) => void
+    onStatus?: (status: 'connected' | 'disconnected') => void
+  },
+) {
+  const res = await fetch(`${API_BASE_URL}/session/${sessionID}/prompt_sse`, {
+    method: 'POST',
+    headers: {
+      ...authHeaders(),
+      Accept: 'text/event-stream',
+    },
+    body: JSON.stringify({ parts, ...options }),
+    signal: handlers?.signal,
+  })
+
+  if (res.status === 401) {
+    clearAuth()
+    window.location.reload()
+    throw new Error('认证失败，请重新登录')
+  }
+  if (!res.ok || !res.body) {
+    const text = await res.text()
+    throw new Error(`API ${res.status}: ${text}`)
+  }
+
+  handlers?.onStatus?.('connected')
+
+  try {
+    await consumeSSEStream(res.body, (event) => {
+      if (event.type === 'message.part.updated') {
+        const part = event.properties?.part
+        if (part && typeof part === 'object' && !Array.isArray(part)) {
+          const toolPart = part as {
+            id?: string
+            type?: string
+            state?: { status?: string }
+          }
+          if (toolPart.type === 'tool' && typeof toolPart.id === 'string') {
+            const status = toolPart.state?.status
+            if (status === 'running') {
+              toolTimings.set(toolPart.id, { startTime: Date.now() })
+            } else if (status === 'completed' || status === 'error') {
+              const timing = toolTimings.get(toolPart.id)
+              if (timing && !timing.duration) {
+                timing.duration = Date.now() - timing.startTime
+              }
+            }
+          }
+        }
+      }
+
+      handlers?.onEvent?.(event)
+    })
+  } finally {
+    handlers?.onStatus?.('disconnected')
   }
 }
 

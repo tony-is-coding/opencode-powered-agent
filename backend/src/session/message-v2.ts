@@ -454,6 +454,7 @@ export namespace MessageV2 {
     Updated: BusEvent.define(
       "message.updated",
       z.object({
+        sessionID: SessionID.zod,
         info: Info,
       }),
     ),
@@ -467,6 +468,7 @@ export namespace MessageV2 {
     PartUpdated: BusEvent.define(
       "message.part.updated",
       z.object({
+        sessionID: SessionID.zod,
         part: Part,
       }),
     ),
