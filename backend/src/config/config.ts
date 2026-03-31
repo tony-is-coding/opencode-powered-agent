@@ -30,7 +30,6 @@ import {
   parse as parseJsonc,
   printParseErrorCode,
 } from "jsonc-parser"
-import { Instance } from "../project/instance"
 import { BunProc } from "@/bun"
 import { ConfigMarkdown } from "./markdown"
 import { constants, existsSync } from "fs"
@@ -82,7 +81,16 @@ export namespace Config {
     return merged
   }
 
-  export const state = Instance.state(async () => {
+  type ConfigState = { config: Info; directories: string[]; deps: Promise<void>[] }
+  let _configCache: ConfigState | undefined
+
+  async function getState(): Promise<ConfigState> {
+    if (_configCache) return _configCache
+    _configCache = await buildConfig()
+    return _configCache
+  }
+
+  async function buildConfig(): Promise<ConfigState> {
     const auth = await Auth.all()
 
     // Config loading order (low -> high precedence): https://opencode.ai/docs/config#precedence-order
@@ -129,7 +137,7 @@ export namespace Config {
 
     // Project config overrides global and remote config.
     if (!Flag.OPENCODE_DISABLE_PROJECT_CONFIG) {
-      for (const file of await ConfigPaths.projectFiles("opencode", Instance.directory, Instance.worktree)) {
+      for (const file of await ConfigPaths.projectFiles("opencode", process.cwd(), process.cwd())) {
         result = mergeConfigConcatArrays(result, await loadFile(file))
       }
     }
@@ -138,7 +146,7 @@ export namespace Config {
     result.mode = result.mode || {}
     result.plugin = result.plugin || []
 
-    const directories = await ConfigPaths.directories(Instance.directory, Instance.worktree)
+    const directories = await ConfigPaths.directories(process.cwd(), process.cwd())
 
     // .opencode directory config overrides (project and global) config sources.
     if (Flag.OPENCODE_CONFIG_DIR) {
@@ -177,7 +185,7 @@ export namespace Config {
       result = mergeConfigConcatArrays(
         result,
         await load(process.env.OPENCODE_CONFIG_CONTENT, {
-          dir: Instance.directory,
+          dir: process.cwd(),
           source: "OPENCODE_CONFIG_CONTENT",
         }),
       )
@@ -270,10 +278,10 @@ export namespace Config {
       directories,
       deps,
     }
-  })
+  }
 
   export async function waitForDependencies() {
-    const deps = await state().then((x) => x.deps)
+    const deps = await getState().then((x) => x.deps)
     await Promise.all(deps)
   }
 
@@ -1341,7 +1349,7 @@ export namespace Config {
   )
 
   export async function get() {
-    return state().then((x) => x.config)
+    return getState().then((x) => x.config)
   }
 
   export async function getGlobal() {
@@ -1349,10 +1357,10 @@ export namespace Config {
   }
 
   export async function update(config: Info) {
-    const filepath = path.join(Instance.directory, "config.json")
+    const filepath = path.join(process.cwd(), "config.json")
     const existing = await loadFile(filepath)
     await Filesystem.writeJson(filepath, mergeDeep(existing, config))
-    await Instance.dispose()
+    _configCache = undefined
   }
 
   function globalConfigFile() {
@@ -1443,24 +1451,19 @@ export namespace Config {
 
     global.reset()
 
-    void Instance.disposeAll()
-      .catch(() => undefined)
-      .finally(() => {
-        GlobalBus.emit("event", {
-          directory: "global",
-          payload: {
-            type: Event.Disposed.type,
-            properties: {},
-          },
-        })
-      })
+    // Config cache cleared — no Instance.disposeAll() needed
+    GlobalBus.emit("event", {
+      directory: "global",
+      payload: {
+        type: Event.Disposed.type,
+        properties: {},
+      },
+    })
 
     return next
   }
 
   export async function directories() {
-    return state().then((x) => x.directories)
+    return getState().then((x) => x.directories)
   }
 }
-Filesystem.write
-Filesystem.write

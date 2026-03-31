@@ -2,7 +2,6 @@ import z from "zod"
 import path from "path"
 import os from "os"
 import { Config } from "../config/config"
-import { Instance } from "../project/instance"
 import { NamedError } from "@opencode-ai/util/error"
 import { ConfigMarkdown } from "../config/markdown"
 import { Log } from "../util/log"
@@ -53,7 +52,10 @@ export namespace Skill {
   const OPENCODE_SKILL_PATTERN = "{skill,skills}/**/SKILL.md"
   const SKILL_PATTERN = "**/SKILL.md"
 
-  export const state = Instance.state(async () => {
+  let _skillCache: { skills: Record<string, Info>; dirs: Set<string> } | undefined
+
+  async function getState() {
+    if (_skillCache) return _skillCache
     const skills: Record<string, Info> = {}
     const dirs = new Set<string>()
 
@@ -116,8 +118,8 @@ export namespace Skill {
 
       for await (const root of Filesystem.up({
         targets: EXTERNAL_DIRS,
-        start: Instance.directory,
-        stop: Instance.worktree,
+        start: process.cwd(),
+        stop: process.cwd(),
       })) {
         await scanExternal(root, "project")
       }
@@ -140,7 +142,7 @@ export namespace Skill {
     const config = await Config.get()
     for (const skillPath of config.skills?.paths ?? []) {
       const expanded = skillPath.startsWith("~/") ? path.join(os.homedir(), skillPath.slice(2)) : skillPath
-      const resolved = path.isAbsolute(expanded) ? expanded : path.join(Instance.directory, expanded)
+      const resolved = path.isAbsolute(expanded) ? expanded : path.join(process.cwd(), expanded)
       if (!(await Filesystem.isDir(resolved))) {
         log.warn("skill path not found", { path: resolved })
         continue
@@ -173,18 +175,19 @@ export namespace Skill {
       }
     }
 
-    return {
+    _skillCache = {
       skills,
-      dirs: Array.from(dirs),
+      dirs: new Set(Array.from(dirs)),
     }
-  })
+    return _skillCache
+  }
 
   export async function get(name: string) {
-    return state().then((x) => x.skills[name])
+    return getState().then((x) => x.skills[name])
   }
 
   export async function all() {
-    return state().then((x) => Object.values(x.skills))
+    return getState().then((x) => Object.values(x.skills))
   }
 
   export async function enabled() {
@@ -192,8 +195,8 @@ export namespace Skill {
     return list.filter((skill) => Settings.isSkillEnabled(skill.name, settings))
   }
 
-  export async function dirs() {
-    return state().then((x) => x.dirs)
+  export async function dirs(): Promise<string[]> {
+    return getState().then((x) => Array.from(x.dirs))
   }
 
   export async function available(agent?: Agent.Info) {

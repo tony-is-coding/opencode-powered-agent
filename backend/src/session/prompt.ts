@@ -13,7 +13,6 @@ import { Provider } from "../provider/provider"
 import { ModelID, ProviderID } from "../provider/schema"
 import { type Tool as AITool, tool, jsonSchema, type ToolCallOptions, asSchema } from "ai"
 import { SessionCompaction } from "./compaction"
-import { Instance } from "../project/instance"
 import { Bus } from "../bus"
 import { Global } from "../global"
 import { ProviderTransform } from "../provider/transform"
@@ -65,29 +64,19 @@ const STRUCTURED_OUTPUT_SYSTEM_PROMPT = `IMPORTANT: The user has requested struc
 export namespace SessionPrompt {
   const log = Log.create({ service: "session.prompt" })
 
-  const state = Instance.state(
-    () => {
-      const data: Record<
-        string,
-        {
-          abort: AbortController
-          callbacks: {
-            resolve(input: MessageV2.WithParts): void
-            reject(reason?: any): void
-          }[]
-        }
-      > = {}
-      return data
-    },
-    async (current) => {
-      for (const item of Object.values(current)) {
-        item.abort.abort()
-      }
-    },
-  )
+  const promptState: Record<
+    string,
+    {
+      abort: AbortController
+      callbacks: {
+        resolve(input: MessageV2.WithParts): void
+        reject(reason?: any): void
+      }[]
+    }
+  > = {}
 
   export function assertNotBusy(sessionID: SessionID) {
-    const match = state()[sessionID]
+    const match = promptState[sessionID]
     if (match) throw new Session.BusyError(sessionID)
   }
 
@@ -203,7 +192,7 @@ export namespace SessionPrompt {
         seen.add(name)
         const filepath = name.startsWith("~/")
           ? path.join(os.homedir(), name.slice(2))
-          : path.resolve(Instance.worktree, name)
+          : path.resolve(process.cwd(), name)
 
         const stats = await fs.stat(filepath).catch(() => undefined)
         if (!stats) {
@@ -239,7 +228,7 @@ export namespace SessionPrompt {
   }
 
   function start(sessionID: SessionID) {
-    const s = state()
+    const s = promptState
     if (s[sessionID]) return
     const controller = new AbortController()
     s[sessionID] = {
@@ -250,7 +239,7 @@ export namespace SessionPrompt {
   }
 
   function resume(sessionID: SessionID) {
-    const s = state()
+    const s = promptState
     if (!s[sessionID]) return
 
     return s[sessionID].abort.signal
@@ -258,7 +247,7 @@ export namespace SessionPrompt {
 
   export function cancel(sessionID: SessionID) {
     log.info("cancel", { sessionID })
-    const s = state()
+    const s = promptState
     const match = s[sessionID]
     if (!match) {
       SessionStatus.set(sessionID, { type: "idle" })
@@ -280,7 +269,7 @@ export namespace SessionPrompt {
     const abort = resume_existing ? resume(sessionID) : start(sessionID)
     if (!abort) {
       return new Promise<MessageV2.WithParts>((resolve, reject) => {
-        const callbacks = state()[sessionID].callbacks
+        const callbacks = promptState[sessionID].callbacks
         callbacks.push({ resolve, reject })
       })
     }
@@ -364,8 +353,8 @@ export namespace SessionPrompt {
           agent: task.agent,
           variant: lastUser.variant,
           path: {
-            cwd: Instance.directory,
-            root: Instance.worktree,
+            cwd: process.cwd(),
+            root: process.cwd(),
           },
           cost: 0,
           tokens: {
@@ -576,8 +565,8 @@ export namespace SessionPrompt {
           agent: agent.name,
           variant: lastUser.variant,
           path: {
-            cwd: Instance.directory,
-            root: Instance.worktree,
+            cwd: process.cwd(),
+            root: process.cwd(),
           },
           cost: 0,
           tokens: {
@@ -725,7 +714,7 @@ export namespace SessionPrompt {
     SessionCompaction.prune({ sessionID })
     for await (const item of MessageV2.stream(sessionID)) {
       if (item.info.role === "user") continue
-      const queued = state()[sessionID]?.callbacks ?? []
+      const queued = promptState[sessionID]?.callbacks ?? []
       for (const q of queued) {
         q.resolve(item)
       }
@@ -1475,7 +1464,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
 
     using _ = defer(() => {
       // If no queued callbacks, cancel (the default)
-      const callbacks = state()[input.sessionID]?.callbacks ?? []
+      const callbacks = promptState[input.sessionID]?.callbacks ?? []
       if (callbacks.length === 0) {
         cancel(input.sessionID)
       } else {
@@ -1524,8 +1513,8 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       agent: input.agent,
       cost: 0,
       path: {
-        cwd: Instance.directory,
-        root: Instance.worktree,
+        cwd: process.cwd(),
+        root: process.cwd(),
       },
       time: {
         created: Date.now(),
@@ -1614,7 +1603,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
     const matchingInvocation = invocations[shellName] ?? invocations[""]
     const args = matchingInvocation?.args
 
-    const cwd = Instance.directory
+    const cwd = process.cwd()
     const shellEnv = await Plugin.trigger(
       "shell.env",
       { cwd, sessionID: input.sessionID, callID: part.callID },

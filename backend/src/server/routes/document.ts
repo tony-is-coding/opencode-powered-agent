@@ -3,7 +3,6 @@ import { describeRoute, validator, resolver } from "hono-openapi"
 import z from "zod"
 import * as fs from "fs"
 import * as path from "path"
-import { Instance } from "@/project/instance"
 import { errors } from "../error"
 import { lazy } from "@/util/lazy"
 
@@ -171,7 +170,7 @@ export const DocumentRoutes = lazy(() =>
       ),
       async (c) => {
         const query = c.req.valid("query")
-        const projectDir = Instance.directory
+        const projectDir = process.cwd()
         const recursive = query.recursive === "true"
 
         const files = recursive
@@ -212,7 +211,7 @@ export const DocumentRoutes = lazy(() =>
           return c.json({ error: validation.error }, 400)
         }
 
-        const projectDir = Instance.directory
+        const projectDir = process.cwd()
         const fullPath = path.join(projectDir, relativePath)
 
         // Ensure the resolved path is still within project directory
@@ -265,7 +264,7 @@ export const DocumentRoutes = lazy(() =>
           return c.json({ error: validation.error }, 400)
         }
 
-        const projectDir = Instance.directory
+        const projectDir = process.cwd()
         const fullPath = path.join(projectDir, relativePath)
 
         // Ensure the resolved path is still within project directory
@@ -321,7 +320,7 @@ export const DocumentRoutes = lazy(() =>
           return c.json({ error: validation.error }, 400)
         }
 
-        const projectDir = Instance.directory
+        const projectDir = process.cwd()
         const fullPath = path.join(projectDir, relativePath)
 
         // Ensure the resolved path is still within project directory
@@ -373,7 +372,7 @@ export const DocumentRoutes = lazy(() =>
           return c.json({ error: validation.error }, 400)
         }
 
-        const projectDir = Instance.directory
+        const projectDir = process.cwd()
         const fullPath = path.join(projectDir, relativePath)
 
         // Ensure the resolved path is still within project directory

@@ -1,6 +1,5 @@
 import { BusEvent } from "@/bus/bus-event"
 import { Bus } from "@/bus"
-import { Instance } from "@/project/instance"
 import { SessionID } from "./schema"
 import z from "zod"
 
@@ -42,21 +41,18 @@ export namespace SessionStatus {
     ),
   }
 
-  const state = Instance.state(() => {
-    const data: Record<string, Info> = {}
-    return data
-  })
+  const data: Record<string, Info> = {}
 
   export function get(sessionID: SessionID) {
     return (
-      state()[sessionID] ?? {
+      data[sessionID] ?? {
         type: "idle",
       }
     )
   }
 
   export function list() {
-    return state()
+    return data
   }
 
   export function set(sessionID: SessionID, status: Info) {
@@ -69,9 +65,10 @@ export namespace SessionStatus {
       Bus.publish(Event.Idle, {
         sessionID,
       })
-      delete state()[sessionID]
+      delete data[sessionID]
       return
     }
-    state()[sessionID] = status
+    data[sessionID] = status
   }
 }
+

@@ -22,7 +22,6 @@ import { Plugin } from "../plugin"
 import { NamedError } from "@opencode-ai/util/error"
 import { ModelsDev } from "./models"
 import { Env } from "../env"
-import { Instance } from "../project/instance"
 import { Flag } from "../flag/flag"
 import { iife } from "@/util/iife"
 import { Global } from "../global"
@@ -843,7 +842,22 @@ export namespace Provider {
     }
   }
 
-  const state = Instance.state(async () => {
+  type ProviderState = {
+    models: Map<string, LanguageModelV2>
+    providers: { [providerID: string]: Info }
+    sdk: Map<string, SDK>
+    modelLoaders: { [providerID: string]: CustomModelLoader }
+    varsLoaders: { [providerID: string]: CustomVarsLoader }
+  }
+  let _providerCache: ProviderState | undefined
+
+  async function getState(): Promise<ProviderState> {
+    if (_providerCache) return _providerCache
+    _providerCache = await buildState()
+    return _providerCache
+  }
+
+  async function buildState(): Promise<ProviderState> {
     using _ = log.time("state")
     const config = await Config.get()
     const modelsDev = await ModelsDev.get()
@@ -1134,10 +1148,10 @@ export namespace Provider {
       modelLoaders,
       varsLoaders,
     }
-  })
+  }
 
   export async function list() {
-    return state().then((state) => state.providers)
+    return getState().then((state) => state.providers)
   }
 
   async function getSDK(model: Model) {
@@ -1145,7 +1159,7 @@ export namespace Provider {
       using _ = log.time("getSDK", {
         providerID: model.providerID,
       })
-      const s = await state()
+      const s = await getState()
       const provider = s.providers[model.providerID]
       const options = { ...provider.options }
 
@@ -1274,11 +1288,11 @@ export namespace Provider {
   }
 
   export async function getProvider(providerID: ProviderID) {
-    return state().then((s) => s.providers[providerID])
+    return getState().then((s) => s.providers[providerID])
   }
 
   export async function getModel(providerID: ProviderID, modelID: ModelID) {
-    const s = await state()
+    const s = await getState()
     const provider = s.providers[providerID]
     if (!provider) {
       const availableProviders = Object.keys(s.providers)
@@ -1298,7 +1312,7 @@ export namespace Provider {
   }
 
   export async function getLanguage(model: Model): Promise<LanguageModelV2> {
-    const s = await state()
+    const s = await getState()
     const key = `${model.providerID}/${model.id}`
     if (s.models.has(key)) return s.models.get(key)!
 
@@ -1325,7 +1339,7 @@ export namespace Provider {
   }
 
   export async function closest(providerID: ProviderID, query: string[]) {
-    const s = await state()
+    const s = await getState()
     const provider = s.providers[providerID]
     if (!provider) return undefined
     for (const item of query) {
@@ -1347,7 +1361,7 @@ export namespace Provider {
       return getModel(parsed.providerID, parsed.modelID)
     }
 
-    const provider = await state().then((state) => state.providers[providerID])
+    const provider = await getState().then((state) => state.providers[providerID])
     if (provider) {
       let priority = [
         "claude-haiku-4-5",
