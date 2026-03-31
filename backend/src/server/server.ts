@@ -436,7 +436,7 @@ export namespace Server {
             })
 
             // Build initial set of tenant's session IDs for filtering message.* events
-            const tenantSessionIds = new Set<string>([...Session.list()].map((s) => s.id))
+            const tenantSessionIds = new Set<string>([...Session.list({ limit: 10000 })].map((s) => s.id))
 
             const unsub = Bus.subscribeAll(async (event) => {
               // Always forward server-level events to all connections

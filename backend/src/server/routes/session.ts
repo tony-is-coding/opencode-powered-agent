@@ -110,7 +110,7 @@ export const SessionRoutes = lazy(() =>
         },
       }),
       async (c) => {
-        const tenantSessionIds = new Set<string>([...Session.list()].map((s) => s.id))
+        const tenantSessionIds = new Set<string>([...Session.list({ limit: 10000 })].map((s) => s.id))
         const allStatus = SessionStatus.list()
         const filtered = Object.fromEntries(Object.entries(allStatus).filter(([id]) => tenantSessionIds.has(id)))
         return c.json(filtered)
@@ -205,6 +205,7 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
+        await Session.get(sessionID)
         const todos = await Todo.get(sessionID)
         return c.json(todos)
       },
@@ -343,6 +344,7 @@ export const SessionRoutes = lazy(() =>
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
         const body = c.req.valid("json")
+        await Session.get(sessionID)
         await Session.initialize({ ...body, sessionID })
         return c.json(true)
       },
@@ -441,6 +443,7 @@ export const SessionRoutes = lazy(() =>
       async (c) => {
         const query = c.req.valid("query")
         const params = c.req.valid("param")
+        await Session.get(params.sessionID)
         const result = await SessionSummary.diff({
           sessionID: params.sessionID,
           messageID: query.messageID,
@@ -578,6 +581,7 @@ export const SessionRoutes = lazy(() =>
           return c.json(messages)
         }
 
+        await Session.get(sessionID)
         const page = await MessageV2.page({
           sessionID,
           limit: query.limit,
@@ -626,6 +630,7 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const params = c.req.valid("param")
+        await Session.get(params.sessionID)
         const message = await MessageV2.get({
           sessionID: params.sessionID,
           messageID: params.messageID,
@@ -1063,6 +1068,7 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
+        await Session.get(sessionID)
         const session = await SessionRevert.unrevert({ sessionID })
         return c.json(session)
       },
