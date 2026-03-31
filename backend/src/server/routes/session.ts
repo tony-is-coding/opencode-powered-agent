@@ -825,12 +825,11 @@ export const SessionRoutes = lazy(() =>
         c.header("X-Content-Type-Options", "nosniff")
         c.header("Cache-Control", "no-cache")
 
-        return streamSSE(c, async (stream) => {
-          const sessionID = c.req.valid("param").sessionID
-          const body = c.req.valid("json")
+        const sessionID = c.req.valid("param").sessionID
+        await Session.get(sessionID) // enforces tenant ownership — throws NotFoundError if not owned
 
-          // Verify session ownership before opening stream
-          await Session.get(sessionID) // throws NotFoundError if not owned by current tenant
+        return streamSSE(c, async (stream) => {
+          const body = c.req.valid("json")
 
           let settled = false
           let heartbeat: ReturnType<typeof setInterval> | null = null
