@@ -1,32 +1,23 @@
 import { Slug } from "@opencode-ai/util/slug"
-import path from "path"
 import { BusEvent } from "@/bus/bus-event"
 import { Bus } from "@/bus"
 import { Decimal } from "decimal.js"
 import z from "zod"
 import { type ProviderMetadata } from "ai"
-import { Config } from "../config/config"
-import { Flag } from "../flag/flag"
 
-import { Database, NotFoundError, eq, and, or, gte, isNull, desc, like, inArray, lt } from "../storage/db"
-import type { SQL } from "../storage/db"
+import { Database, NotFoundError, eq, and, gte, isNull, desc, like } from "../storage/db"
 import { SessionTable, MessageTable, PartTable } from "./session.sql"
-import { ProjectTable } from "../project/project.sql"
-import { Storage } from "@/storage/storage"
 import { Log } from "../util/log"
 import { MessageV2 } from "./message-v2"
-import { Instance } from "../project/instance"
 import { SessionPrompt } from "./prompt"
 import { fn } from "@/util/fn"
 import { Command } from "../command"
-import { Snapshot } from "@/snapshot"
-import { ProjectID } from "../project/schema"
 import { SessionID, MessageID, PartID } from "./schema"
+import { TenantContext } from "@/tenant"
 
 import type { Provider } from "@/provider/provider"
 import { ModelID, ProviderID } from "@/provider/schema"
 import { PermissionNext } from "@/permission/next"
-import { Global } from "@/global"
 import type { LanguageModelV2Usage } from "@ai-sdk/provider"
 import { iife } from "@/util/iife"
 
@@ -48,30 +39,23 @@ export namespace Session {
 
   type SessionRow = typeof SessionTable.$inferSelect
 
+  function forTenant() {
+    const { tenantId, userId } = TenantContext.get()
+    return and(
+      eq(SessionTable.tenant_id, tenantId),
+      eq(SessionTable.user_id, userId),
+    )
+  }
+
   export function fromRow(row: SessionRow): Info {
-    const summary =
-      row.summary_additions !== null || row.summary_deletions !== null || row.summary_files !== null
-        ? {
-            additions: row.summary_additions ?? 0,
-            deletions: row.summary_deletions ?? 0,
-            files: row.summary_files ?? 0,
-            diffs: row.summary_diffs ?? undefined,
-          }
-        : undefined
-    const share = row.share_url ? { url: row.share_url } : undefined
-    const revert = row.revert ?? undefined
     return {
       id: row.id,
       slug: row.slug,
-      projectID: row.project_id,
-      workspaceID: row.workspace_id ?? undefined,
-      directory: row.directory,
+      tenantId: row.tenant_id,
+      userId: row.user_id,
       parentID: row.parent_id ?? undefined,
       title: row.title,
       version: row.version,
-      summary,
-      share,
-      revert,
       permission: row.permission ?? undefined,
       time: {
         created: row.time_created,
@@ -85,19 +69,12 @@ export namespace Session {
   export function toRow(info: Info) {
     return {
       id: info.id,
-      project_id: info.projectID,
-      workspace_id: info.workspaceID,
+      tenant_id: info.tenantId,
+      user_id: info.userId,
       parent_id: info.parentID,
       slug: info.slug,
-      directory: info.directory,
       title: info.title,
       version: info.version,
-      share_url: info.share?.url,
-      summary_additions: info.summary?.additions,
-      summary_deletions: info.summary?.deletions,
-      summary_files: info.summary?.files,
-      summary_diffs: info.summary?.diffs,
-      revert: info.revert ?? null,
       permission: info.permission,
       time_created: info.time.created,
       time_updated: info.time.updated,
@@ -120,23 +97,9 @@ export namespace Session {
     .object({
       id: SessionID.zod,
       slug: z.string(),
-      projectID: ProjectID.zod,
-      workspaceID: z.string().optional(),
-      directory: z.string(),
+      tenantId: z.string(),
+      userId: z.string(),
       parentID: SessionID.zod.optional(),
-      summary: z
-        .object({
-          additions: z.number(),
-          deletions: z.number(),
-          files: z.number(),
-          diffs: Snapshot.FileDiff.array().optional(),
-        })
-        .optional(),
-      share: z
-        .object({
-          url: z.string(),
-        })
-        .optional(),
       title: z.string(),
       version: z.string(),
       time: z.object({
@@ -146,37 +109,9 @@ export namespace Session {
         archived: z.number().optional(),
       }),
       permission: PermissionNext.Ruleset.optional(),
-      revert: z
-        .object({
-          messageID: MessageID.zod,
-          partID: PartID.zod.optional(),
-          snapshot: z.string().optional(),
-          diff: z.string().optional(),
-        })
-        .optional(),
     })
-    .meta({
-      ref: "Session",
-    })
+    .meta({ ref: "Session" })
   export type Info = z.output<typeof Info>
-
-  export const ProjectInfo = z
-    .object({
-      id: ProjectID.zod,
-      name: z.string().optional(),
-      worktree: z.string(),
-    })
-    .meta({
-      ref: "ProjectSummary",
-    })
-  export type ProjectInfo = z.output<typeof ProjectInfo>
-
-  export const GlobalInfo = Info.extend({
-    project: ProjectInfo.nullable(),
-  }).meta({
-    ref: "GlobalSession",
-  })
-  export type GlobalInfo = z.output<typeof GlobalInfo>
 
   export const Event = {
     Created: BusEvent.define(
@@ -197,13 +132,6 @@ export namespace Session {
         info: Info,
       }),
     ),
-    Diff: BusEvent.define(
-      "session.diff",
-      z.object({
-        sessionID: SessionID.zod,
-        diff: Snapshot.FileDiff.array(),
-      }),
-    ),
     Error: BusEvent.define(
       "session.error",
       z.object({
@@ -214,21 +142,16 @@ export namespace Session {
   }
 
   export const create = fn(
-    z
-      .object({
-        parentID: SessionID.zod.optional(),
-        title: z.string().optional(),
-        permission: Info.shape.permission,
-        workspaceID: z.string().optional(),
-      })
-      .optional(),
+    z.object({
+      parentID: SessionID.zod.optional(),
+      title: z.string().optional(),
+      permission: Info.shape.permission,
+    }).optional(),
     async (input) => {
       return createNext({
         parentID: input?.parentID,
-        directory: Instance.directory,
         title: input?.title,
         permission: input?.permission,
-        workspaceID: input?.workspaceID,
       })
     },
   )
@@ -242,11 +165,7 @@ export namespace Session {
       const original = await get(input.sessionID)
       if (!original) throw new Error("session not found")
       const title = getForkedTitle(original.title)
-      const session = await createNext({
-        directory: Instance.directory,
-        workspaceID: original.workspaceID,
-        title,
-      })
+      const session = await createNext({ title })
       const msgs = await messages({ sessionID: input.sessionID })
       const idMap = new Map<string, MessageID>()
 
@@ -282,7 +201,7 @@ export namespace Session {
       const row = db
         .update(SessionTable)
         .set({ time_updated: now })
-        .where(eq(SessionTable.id, sessionID))
+        .where(and(eq(SessionTable.id, sessionID), forTenant()))
         .returning()
         .get()
       if (!row) throw new NotFoundError({ message: `Session not found: ${sessionID}` })
@@ -295,65 +214,37 @@ export namespace Session {
     id?: SessionID
     title?: string
     parentID?: SessionID
-    workspaceID?: string
-    directory: string
     permission?: PermissionNext.Ruleset
   }) {
+    const { tenantId, userId } = TenantContext.get()
     const result: Info = {
       id: SessionID.descending(input.id),
       slug: Slug.create(),
       version: "0.1.0",
-      projectID: Instance.project.id,
-      directory: input.directory,
-      workspaceID: input.workspaceID,
+      tenantId,
+      userId,
       parentID: input.parentID,
       title: input.title ?? createDefaultTitle(!!input.parentID),
       permission: input.permission,
-      time: {
-        created: Date.now(),
-        updated: Date.now(),
-      },
+      time: { created: Date.now(), updated: Date.now() },
     }
     log.info("created", result)
     Database.use((db) => {
       db.insert(SessionTable).values(toRow(result)).run()
-      Database.effect(() =>
-        Bus.publish(Event.Created, {
-          info: result,
-        }),
-      )
+      Database.effect(() => Bus.publish(Event.Created, { info: result }))
     })
-    const cfg = await Config.get()
-    if (!result.parentID && (Flag.OPENCODE_AUTO_SHARE || cfg.share === "auto"))
-      share(result.id).catch(() => {
-        // Silently ignore sharing errors during session creation
-      })
-    Bus.publish(Event.Updated, {
-      info: result,
-    })
+    Bus.publish(Event.Updated, { info: result })
     return result
   }
 
-  export function plan(input: { slug: string; time: { created: number } }) {
-    const base = Instance.project.vcs
-      ? path.join(Instance.worktree, ".opencode", "plans")
-      : path.join(Global.Path.data, "plans")
-    return path.join(base, [input.time.created, input.slug].join("-") + ".md")
-  }
-
   export const get = fn(SessionID.zod, async (id) => {
-    const row = Database.use((db) => db.select().from(SessionTable).where(eq(SessionTable.id, id)).get())
+    const row = Database.use((db) =>
+      db.select().from(SessionTable)
+        .where(and(eq(SessionTable.id, id), forTenant()))
+        .get()
+    )
     if (!row) throw new NotFoundError({ message: `Session not found: ${id}` })
     return fromRow(row)
-  })
-
-  // Share module not migrated — sharing disabled in Agent Core
-  export const share = fn(SessionID.zod, async (_id) => {
-    throw new Error("Sharing is not available in Agent Core")
-  })
-
-  export const unshare = fn(SessionID.zod, async (_id) => {
-    // No-op: sharing not available in Agent Core
   })
 
   export const setTitle = fn(
@@ -366,7 +257,7 @@ export namespace Session {
         const row = db
           .update(SessionTable)
           .set({ title: input.title })
-          .where(eq(SessionTable.id, input.sessionID))
+          .where(and(eq(SessionTable.id, input.sessionID), forTenant()))
           .returning()
           .get()
         if (!row) throw new NotFoundError({ message: `Session not found: ${input.sessionID}` })
@@ -387,7 +278,7 @@ export namespace Session {
         const row = db
           .update(SessionTable)
           .set({ time_archived: input.time })
-          .where(eq(SessionTable.id, input.sessionID))
+          .where(and(eq(SessionTable.id, input.sessionID), forTenant()))
           .returning()
           .get()
         if (!row) throw new NotFoundError({ message: `Session not found: ${input.sessionID}` })
@@ -408,7 +299,7 @@ export namespace Session {
         const row = db
           .update(SessionTable)
           .set({ permission: input.permission, time_updated: Date.now() })
-          .where(eq(SessionTable.id, input.sessionID))
+          .where(and(eq(SessionTable.id, input.sessionID), forTenant()))
           .returning()
           .get()
         if (!row) throw new NotFoundError({ message: `Session not found: ${input.sessionID}` })
@@ -422,8 +313,8 @@ export namespace Session {
   export const setRevert = fn(
     z.object({
       sessionID: SessionID.zod,
-      revert: Info.shape.revert,
-      summary: Info.shape.summary,
+      revert: z.any(),
+      summary: z.any(),
     }),
     async (input) => {
       return Database.use((db) => {
@@ -435,8 +326,8 @@ export namespace Session {
             summary_deletions: input.summary?.deletions,
             summary_files: input.summary?.files,
             time_updated: Date.now(),
-          })
-          .where(eq(SessionTable.id, input.sessionID))
+          } as any)
+          .where(and(eq(SessionTable.id, input.sessionID), forTenant()))
           .returning()
           .get()
         if (!row) throw new NotFoundError({ message: `Session not found: ${input.sessionID}` })
@@ -454,8 +345,8 @@ export namespace Session {
         .set({
           revert: null,
           time_updated: Date.now(),
-        })
-        .where(eq(SessionTable.id, sessionID))
+        } as any)
+        .where(and(eq(SessionTable.id, sessionID), forTenant()))
         .returning()
         .get()
       if (!row) throw new NotFoundError({ message: `Session not found: ${sessionID}` })
@@ -468,7 +359,7 @@ export namespace Session {
   export const setSummary = fn(
     z.object({
       sessionID: SessionID.zod,
-      summary: Info.shape.summary,
+      summary: z.any(),
     }),
     async (input) => {
       return Database.use((db) => {
@@ -479,8 +370,8 @@ export namespace Session {
             summary_deletions: input.summary?.deletions,
             summary_files: input.summary?.files,
             time_updated: Date.now(),
-          })
-          .where(eq(SessionTable.id, input.sessionID))
+          } as any)
+          .where(and(eq(SessionTable.id, input.sessionID), forTenant()))
           .returning()
           .get()
         if (!row) throw new NotFoundError({ message: `Session not found: ${input.sessionID}` })
@@ -490,14 +381,6 @@ export namespace Session {
       })
     },
   )
-
-  export const diff = fn(SessionID.zod, async (sessionID) => {
-    try {
-      return await Storage.read<Snapshot.FileDiff[]>(["session_diff", sessionID])
-    } catch {
-      return []
-    }
-  })
 
   export const messages = fn(
     z.object({
@@ -515,147 +398,36 @@ export namespace Session {
     },
   )
 
-  export function* list(input?: {
-    directory?: string
-    workspaceID?: string
-    roots?: boolean
-    start?: number
-    search?: string
-    limit?: number
-  }) {
-    const project = Instance.project
-    const conditions = [eq(SessionTable.project_id, project.id)]
-
-    // WorkspaceContext filter removed — will be replaced by tenant isolation
-    // if (WorkspaceContext.workspaceID) {
-    //   conditions.push(eq(SessionTable.workspace_id, WorkspaceContext.workspaceID))
-    // }
-    if (input?.directory) {
-      conditions.push(eq(SessionTable.directory, input.directory))
-    }
-    if (input?.roots) {
-      conditions.push(isNull(SessionTable.parent_id))
-    }
-    if (input?.start) {
-      conditions.push(gte(SessionTable.time_updated, input.start))
-    }
-    if (input?.search) {
-      conditions.push(like(SessionTable.title, `%${input.search}%`))
-    }
-
-    const limit = input?.limit ?? 100
-
+  export function* list(input?: { roots?: boolean; start?: number; search?: string; limit?: number }) {
+    const conditions = [forTenant()]
+    if (input?.roots) conditions.push(isNull(SessionTable.parent_id))
+    if (input?.start) conditions.push(gte(SessionTable.time_updated, input.start))
+    if (input?.search) conditions.push(like(SessionTable.title, `%${input.search}%`))
     const rows = Database.use((db) =>
-      db
-        .select()
-        .from(SessionTable)
-        .where(and(...conditions))
-        .orderBy(desc(SessionTable.time_updated))
-        .limit(limit)
-        .all(),
+      db.select().from(SessionTable).where(and(...conditions))
+        .orderBy(desc(SessionTable.time_updated)).limit(input?.limit ?? 100).all()
     )
-    for (const row of rows) {
-      yield fromRow(row)
-    }
-  }
-
-  export function* listGlobal(input?: {
-    directory?: string
-    roots?: boolean
-    start?: number
-    cursor?: number
-    search?: string
-    limit?: number
-    archived?: boolean
-  }) {
-    const conditions: SQL[] = []
-
-    if (input?.directory) {
-      conditions.push(eq(SessionTable.directory, input.directory))
-    }
-    if (input?.roots) {
-      conditions.push(isNull(SessionTable.parent_id))
-    }
-    if (input?.start) {
-      conditions.push(gte(SessionTable.time_updated, input.start))
-    }
-    if (input?.cursor) {
-      conditions.push(lt(SessionTable.time_updated, input.cursor))
-    }
-    if (input?.search) {
-      conditions.push(like(SessionTable.title, `%${input.search}%`))
-    }
-    if (!input?.archived) {
-      conditions.push(isNull(SessionTable.time_archived))
-    }
-
-    const limit = input?.limit ?? 100
-
-    const rows = Database.use((db) => {
-      const query =
-        conditions.length > 0
-          ? db
-              .select()
-              .from(SessionTable)
-              .where(and(...conditions))
-          : db.select().from(SessionTable)
-      return query.orderBy(desc(SessionTable.time_updated), desc(SessionTable.id)).limit(limit).all()
-    })
-
-    const ids = [...new Set(rows.map((row) => row.project_id))]
-    const projects = new Map<string, ProjectInfo>()
-
-    if (ids.length > 0) {
-      const items = Database.use((db) =>
-        db
-          .select({ id: ProjectTable.id, name: ProjectTable.name, worktree: ProjectTable.worktree })
-          .from(ProjectTable)
-          .where(inArray(ProjectTable.id, ids))
-          .all(),
-      )
-      for (const item of items) {
-        projects.set(item.id, {
-          id: item.id,
-          name: item.name ?? undefined,
-          worktree: item.worktree,
-        })
-      }
-    }
-
-    for (const row of rows) {
-      const project = projects.get(row.project_id) ?? null
-      yield { ...fromRow(row), project }
-    }
+    for (const row of rows) yield fromRow(row)
   }
 
   export const children = fn(SessionID.zod, async (parentID) => {
-    const project = Instance.project
     const rows = Database.use((db) =>
-      db
-        .select()
-        .from(SessionTable)
-        .where(and(eq(SessionTable.project_id, project.id), eq(SessionTable.parent_id, parentID)))
-        .all(),
+      db.select().from(SessionTable)
+        .where(and(forTenant(), eq(SessionTable.parent_id, parentID)))
+        .all()
     )
     return rows.map(fromRow)
   })
 
   export const remove = fn(SessionID.zod, async (sessionID) => {
-    const project = Instance.project
     try {
       const session = await get(sessionID)
       for (const child of await children(sessionID)) {
         await remove(child.id)
       }
-      await unshare(sessionID).catch(() => {})
-      // CASCADE delete handles messages and parts automatically
       Database.use((db) => {
-        db.delete(SessionTable).where(eq(SessionTable.id, sessionID)).run()
-        Database.effect(() =>
-          Bus.publish(Event.Deleted, {
-            info: session,
-          }),
-        )
+        db.delete(SessionTable).where(and(eq(SessionTable.id, sessionID), forTenant())).run()
+        Database.effect(() => Bus.publish(Event.Deleted, { info: session }))
       })
     } catch (e) {
       log.error(e)
@@ -794,18 +566,12 @@ export namespace Session {
           0) as number,
       )
 
-      // OpenRouter provides inputTokens as the total count of input tokens (including cached).
-      // AFAIK other providers (OpenRouter/OpenAI/Gemini etc.) do it the same way e.g. vercel/ai#8794 (comment)
-      // Anthropic does it differently though - inputTokens doesn't include cached tokens.
-      // It looks like OpenCode's cost calculation assumes all providers return inputTokens the same way Anthropic does (I'm guessing getUsage logic was originally implemented with anthropic), so it's causing incorrect cost calculation for OpenRouter and others.
       const excludesCachedTokens = !!(input.metadata?.["anthropic"] || input.metadata?.["bedrock"])
       const adjustedInputTokens = safe(
         excludesCachedTokens ? inputTokens : inputTokens - cacheReadInputTokens - cacheWriteInputTokens,
       )
 
       const total = iife(() => {
-        // Anthropic doesn't provide total_tokens, also ai sdk will vastly undercount if we
-        // don't compute from components
         if (
           input.model.api.npm === "@ai-sdk/anthropic" ||
           input.model.api.npm === "@ai-sdk/amazon-bedrock" ||
@@ -838,8 +604,6 @@ export namespace Session {
             .add(new Decimal(tokens.output).mul(costInfo?.output ?? 0).div(1_000_000))
             .add(new Decimal(tokens.cache.read).mul(costInfo?.cache?.read ?? 0).div(1_000_000))
             .add(new Decimal(tokens.cache.write).mul(costInfo?.cache?.write ?? 0).div(1_000_000))
-            // TODO: update models.dev to have better pricing model, for now:
-            // charge reasoning tokens at the same rate as output tokens
             .add(new Decimal(tokens.reasoning).mul(costInfo?.output ?? 0).div(1_000_000))
             .toNumber(),
         ),
