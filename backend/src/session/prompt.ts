@@ -15,6 +15,7 @@ import { type Tool as AITool, tool, jsonSchema, type ToolCallOptions, asSchema }
 import { SessionCompaction } from "./compaction"
 import { Instance } from "../project/instance"
 import { Bus } from "../bus"
+import { Global } from "../global"
 import { ProviderTransform } from "../provider/transform"
 import { SystemPrompt } from "./system"
 import { InstructionPrompt } from "./instruction"
@@ -1349,7 +1350,7 @@ export namespace SessionPrompt {
 
     // Switching from plan mode to build mode
     if (input.agent.name !== "plan" && assistantMessage?.info.agent === "plan") {
-      const plan = Session.plan(input.session)
+      const plan = path.join(Global.Path.data, "plans", [input.session.time.created, input.session.slug].join("-") + ".md")
       const exists = await Filesystem.exists(plan)
       if (exists) {
         const part = await Session.updatePart({
@@ -1368,7 +1369,7 @@ export namespace SessionPrompt {
 
     // Entering plan mode
     if (input.agent.name === "plan" && assistantMessage?.info.agent !== "plan") {
-      const plan = Session.plan(input.session)
+      const plan = path.join(Global.Path.data, "plans", [input.session.time.created, input.session.slug].join("-") + ".md")
       const exists = await Filesystem.exists(plan)
       if (!exists) await fs.mkdir(path.dirname(plan), { recursive: true })
       const part = await Session.updatePart({
@@ -1486,7 +1487,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
     })
 
     const session = await Session.get(input.sessionID)
-    if (session.revert) {
+    if ((session as any).revert) {
       await SessionRevert.cleanup(session)
     }
     const agent = await Agent.get(input.agent)

@@ -1,10 +1,7 @@
 import { Bus } from "@/bus"
 import { BusEvent } from "@/bus/bus-event"
-import { Instance } from "@/project/instance"
-import { ProjectID } from "@/project/schema"
 import { MessageID, SessionID } from "@/session/schema"
-import { PermissionTable } from "@/session/session.sql"
-import { Database, eq } from "@/storage/db"
+import { Database } from "@/storage/db"
 import { InstanceState } from "@/util/instance-state"
 import { Log } from "@/util/log"
 import { Wildcard } from "@/util/wildcard"
@@ -59,7 +56,6 @@ export const Reply = z.enum(["once", "always", "reject"])
 export type Reply = z.infer<typeof Reply>
 
 export const Approval = z.object({
-  projectID: ProjectID.zod,
   patterns: z.string().array(),
 })
 
@@ -135,12 +131,9 @@ export class PermissionService extends ServiceMap.Service<PermissionService, Per
     Effect.gen(function* () {
       const instanceState = yield* InstanceState.make<State>(() =>
         Effect.sync(() => {
-          const row = Database.use((db) =>
-            db.select().from(PermissionTable).where(eq(PermissionTable.project_id, Instance.project.id)).get(),
-          )
           return {
             pending: new Map<PermissionID, PendingEntry>(),
-            approved: row?.data ?? [],
+            approved: [],
           }
         }),
       )
