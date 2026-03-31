@@ -1,9 +1,6 @@
 import { sqliteTable, text, integer, index, primaryKey } from "drizzle-orm/sqlite-core"
-import { ProjectTable } from "../project/project.sql"
 import type { MessageV2 } from "./message-v2"
-import type { Snapshot } from "../snapshot"
 import type { PermissionNext } from "../permission/next"
-import type { ProjectID } from "../project/schema"
 import type { SessionID, MessageID, PartID } from "./schema"
 import { Timestamps } from "../storage/schema.sql"
 
@@ -14,30 +11,23 @@ export const SessionTable = sqliteTable(
   "session",
   {
     id: text().$type<SessionID>().primaryKey(),
-    project_id: text()
-      .$type<ProjectID>()
-      .notNull()
-      .references(() => ProjectTable.id, { onDelete: "cascade" }),
-    workspace_id: text(),
+    tenant_id: text().notNull(),
+    user_id: text().notNull(),
     parent_id: text().$type<SessionID>(),
     slug: text().notNull(),
-    directory: text().notNull(),
     title: text().notNull(),
     version: text().notNull(),
-    share_url: text(),
-    summary_additions: integer(),
-    summary_deletions: integer(),
-    summary_files: integer(),
-    summary_diffs: text({ mode: "json" }).$type<Snapshot.FileDiff[]>(),
-    revert: text({ mode: "json" }).$type<{ messageID: MessageID; partID?: PartID; snapshot?: string; diff?: string }>(),
+    // Session-level permission override (optional).
+    // null = use Agent defaults; non-null = merged with Agent permission, Session rules take priority.
+    // Security: Session permission can only restrict tools, not grant tools outside Agent definition.
     permission: text({ mode: "json" }).$type<PermissionNext.Ruleset>(),
     ...Timestamps,
     time_compacting: integer(),
     time_archived: integer(),
   },
   (table) => [
-    index("session_project_idx").on(table.project_id),
-    index("session_workspace_idx").on(table.workspace_id),
+    index("session_tenant_user_idx").on(table.tenant_id, table.user_id),
+    index("session_tenant_idx").on(table.tenant_id),
     index("session_parent_idx").on(table.parent_id),
   ],
 )
@@ -92,11 +82,4 @@ export const TodoTable = sqliteTable(
     index("todo_session_idx").on(table.session_id),
   ],
 )
-
-export const PermissionTable = sqliteTable("permission", {
-  project_id: text()
-    .primaryKey()
-    .references(() => ProjectTable.id, { onDelete: "cascade" }),
-  ...Timestamps,
-  data: text({ mode: "json" }).notNull().$type<PermissionNext.Ruleset>(),
-})
+// PermissionTable removed — project-level permissions no longer needed

@@ -7,6 +7,9 @@ import { NewTaskPage } from './pages/NewTaskPage'
 import { SessionsPage } from './pages/SessionsPage'
 import { SkillsPage } from './pages/SkillsPage'
 import { TaskDetailPage } from './pages/TaskDetailPage'
+import { DocumentsPage } from './pages/DocumentsPage'
+import { SettingsPage } from './pages/SettingsPage'
+import { SchedulePage } from './pages/SchedulePage'
 import './App.css'
 
 type Theme = 'light' | 'dark'
@@ -15,7 +18,10 @@ const THEME_STORAGE_KEY = 'opencode-agent-theme'
 
 const navItems = [
   { to: '/sessions', label: 'Sessions' },
+  { to: '/documents', label: 'Documents' },
   { to: '/skills', label: 'Skills' },
+  { to: '/settings', label: 'Settings' },
+  { to: '/schedules', label: 'Schedules' },
   { to: '/tasks/new', label: 'New Task' },
 ]
 
@@ -131,7 +137,10 @@ function App() {
       >
         <Route index element={<Navigate replace to="/sessions" />} />
         <Route path="/sessions" element={<SessionsPage />} />
+        <Route path="/documents" element={<DocumentsPage />} />
         <Route path="/skills" element={<SkillsPage />} />
+        <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/schedules" element={<SchedulePage />} />
         <Route path="/tasks/new" element={<NewTaskPage />} />
         <Route path="/tasks/:id" element={<TaskDetailPage />} />
         <Route path="*" element={<Navigate replace to="/sessions" />} />

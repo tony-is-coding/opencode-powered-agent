@@ -1,7 +1,6 @@
 import path from "path"
 import z from "zod"
 import { Filesystem } from "@/util/filesystem"
-import { Instance } from "@/project/instance"
 import { Log } from "@/util/log"
 
 export namespace Settings {
@@ -17,7 +16,7 @@ export namespace Settings {
   export type Info = z.infer<typeof Info>
 
   function filePath() {
-    return path.join(Instance.directory, ".claude", "settings.json")
+    return path.join(process.cwd(), ".claude", "settings.json")
   }
 
   export async function get(): Promise<Info> {

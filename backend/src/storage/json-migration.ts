@@ -2,8 +2,7 @@ import { Database } from "bun:sqlite"
 import { drizzle } from "drizzle-orm/bun-sqlite"
 import { Global } from "../global"
 import { Log } from "../util/log"
-import { ProjectTable } from "../project/project.sql"
-import { SessionTable, MessageTable, PartTable, TodoTable, PermissionTable } from "../session/session.sql"
+import { SessionTable, MessageTable, PartTable, TodoTable } from "../session/session.sql"
 import path from "path"
 import { existsSync } from "fs"
 import { Filesystem } from "../util/filesystem"
@@ -128,12 +127,10 @@ export namespace JsonMigration {
 
     const total = Math.max(
       1,
-      projectFiles.length +
-        sessionFiles.length +
+      sessionFiles.length +
         messageFiles.length +
         partFiles.length +
         todoFiles.length +
-        permFiles.length +
         shareFiles.length,
     )
     const progress = options?.progress
@@ -147,37 +144,12 @@ export namespace JsonMigration {
 
     sqlite.exec("BEGIN TRANSACTION")
 
-    // Migrate projects first (no FK deps)
-    // Derive all IDs from file paths, not JSON content
+    // Projects no longer exist — sessions are now tenant-scoped
+    // Build a set of all project IDs from file paths for orphan detection (legacy)
     const projectIds = new Set<string>()
-    const projectValues = [] as any[]
-    for (let i = 0; i < projectFiles.length; i += batchSize) {
-      const end = Math.min(i + batchSize, projectFiles.length)
-      const batch = await read(projectFiles, i, end)
-      projectValues.length = 0
-      for (let j = 0; j < batch.length; j++) {
-        const data = batch[j]
-        if (!data) continue
-        const id = path.basename(projectFiles[i + j], ".json")
-        projectIds.add(id)
-        projectValues.push({
-          id,
-          worktree: data.worktree ?? "/",
-          vcs: data.vcs,
-          name: data.name ?? undefined,
-          icon_url: data.icon?.url,
-          icon_color: data.icon?.color,
-          time_created: data.time?.created ?? now,
-          time_updated: data.time?.updated ?? now,
-          time_initialized: data.time?.initialized,
-          sandboxes: data.sandboxes ?? [],
-          commands: data.commands,
-        })
-      }
-      stats.projects += insert(projectValues, ProjectTable, "project")
-      step("projects", end - i)
+    for (const file of projectFiles) {
+      projectIds.add(path.basename(file, ".json"))
     }
-    log.info("migrated projects", { count: stats.projects, duration: Math.round(performance.now() - start) })
 
     // Migrate sessions (depends on projects)
     // Derive all IDs from directory/file paths, not JSON content, since earlier
@@ -345,30 +317,8 @@ export namespace JsonMigration {
       log.warn("skipped orphaned todos", { count: orphans.todos })
     }
 
-    // Migrate permissions
-    const permProjects = permFiles.map((file) => path.basename(file, ".json"))
-    const permValues = [] as any[]
-    for (let i = 0; i < permFiles.length; i += batchSize) {
-      const end = Math.min(i + batchSize, permFiles.length)
-      const batch = await read(permFiles, i, end)
-      permValues.length = 0
-      for (let j = 0; j < batch.length; j++) {
-        const data = batch[j]
-        if (!data) continue
-        const projectID = permProjects[i + j]
-        if (!projectIds.has(projectID)) {
-          orphans.permissions++
-          continue
-        }
-        permValues.push({ project_id: projectID, data })
-      }
-      stats.permissions += insert(permValues, PermissionTable, "permission")
-      step("permissions", end - i)
-    }
-    log.info("migrated permissions", { count: stats.permissions })
-    if (orphans.permissions > 0) {
-      log.warn("skipped orphaned permissions", { count: orphans.permissions })
-    }
+    // Permissions migration skipped — PermissionTable removed in tenant refactor
+    log.info("skipped permissions migration (table removed)")
 
     // Migrate session shares
     const shareSessions = shareFiles.map((file) => path.basename(file, ".json"))

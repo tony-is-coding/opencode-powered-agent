@@ -6,10 +6,8 @@ import fs from "fs"
 import ignore from "ignore"
 import { Log } from "../util/log"
 import { Filesystem } from "../util/filesystem"
-import { Instance } from "../project/instance"
 import { Ripgrep } from "./ripgrep"
 import fuzzysort from "fuzzysort"
-import { Global } from "../global"
 import { git } from "@/util/git"
 import { Protected } from "./protected"
 
@@ -332,52 +330,23 @@ export namespace File {
     ),
   }
 
-  const state = Instance.state(async () => {
+  let _fileState: {
+    files(): Promise<{ files: string[]; dirs: string[] }>
+  } | undefined
+
+  async function getState() {
+    if (_fileState) return _fileState
+
     type Entry = { files: string[]; dirs: string[] }
     let cache: Entry = { files: [], dirs: [] }
     let fetching = false
 
-    const isGlobalHome = Instance.directory === Global.Path.home && Instance.project.id === "global"
-
     const fn = async (result: Entry) => {
-      // Disable scanning if in root of file system
-      if (Instance.directory === path.parse(Instance.directory).root) return
+      if (process.cwd() === path.parse(process.cwd()).root) return
       fetching = true
 
-      if (isGlobalHome) {
-        const dirs = new Set<string>()
-        const ignore = Protected.names()
-
-        const ignoreNested = new Set(["node_modules", "dist", "build", "target", "vendor"])
-        const shouldIgnore = (name: string) => name.startsWith(".") || ignore.has(name)
-        const shouldIgnoreNested = (name: string) => name.startsWith(".") || ignoreNested.has(name)
-
-        const top = await fs.promises
-          .readdir(Instance.directory, { withFileTypes: true })
-          .catch(() => [] as fs.Dirent[])
-
-        for (const entry of top) {
-          if (!entry.isDirectory()) continue
-          if (shouldIgnore(entry.name)) continue
-          dirs.add(entry.name + "/")
-
-          const base = path.join(Instance.directory, entry.name)
-          const children = await fs.promises.readdir(base, { withFileTypes: true }).catch(() => [] as fs.Dirent[])
-          for (const child of children) {
-            if (!child.isDirectory()) continue
-            if (shouldIgnoreNested(child.name)) continue
-            dirs.add(entry.name + "/" + child.name + "/")
-          }
-        }
-
-        result.dirs = Array.from(dirs).toSorted()
-        cache = result
-        fetching = false
-        return
-      }
-
       const set = new Set<string>()
-      for await (const file of Ripgrep.files({ cwd: Instance.directory })) {
+      for await (const file of Ripgrep.files({ cwd: process.cwd() })) {
         result.files.push(file)
         let current = file
         while (true) {
@@ -395,30 +364,26 @@ export namespace File {
     }
     fn(cache)
 
-    return {
+    _fileState = {
       async files() {
         if (!fetching) {
-          fn({
-            files: [],
-            dirs: [],
-          })
+          fn({ files: [], dirs: [] })
         }
         return cache
       },
     }
-  })
+    return _fileState
+  }
 
   export function init() {
-    state()
+    getState()
   }
 
   export async function status() {
-    const project = Instance.project
-    if (project.vcs !== "git") return []
-
+    const cwd = process.cwd()
     const diffOutput = (
       await git(["-c", "core.fsmonitor=false", "-c", "core.quotepath=false", "diff", "--numstat", "HEAD"], {
-        cwd: Instance.directory,
+        cwd,
       })
     ).text()
 
@@ -441,7 +406,7 @@ export namespace File {
       await git(
         ["-c", "core.fsmonitor=false", "-c", "core.quotepath=false", "ls-files", "--others", "--exclude-standard"],
         {
-          cwd: Instance.directory,
+          cwd: process.cwd(),
         },
       )
     ).text()
@@ -450,7 +415,7 @@ export namespace File {
       const untrackedFiles = untrackedOutput.trim().split("\n")
       for (const filepath of untrackedFiles) {
         try {
-          const content = await Filesystem.readText(path.join(Instance.directory, filepath))
+          const content = await Filesystem.readText(path.join(process.cwd(), filepath))
           const lines = content.split("\n").length
           changedFiles.push({
             path: filepath,
@@ -469,7 +434,7 @@ export namespace File {
       await git(
         ["-c", "core.fsmonitor=false", "-c", "core.quotepath=false", "diff", "--name-only", "--diff-filter=D", "HEAD"],
         {
-          cwd: Instance.directory,
+          cwd: process.cwd(),
         },
       )
     ).text()
@@ -487,22 +452,19 @@ export namespace File {
     }
 
     return changedFiles.map((x) => {
-      const full = path.isAbsolute(x.path) ? x.path : path.join(Instance.directory, x.path)
+      const full = path.isAbsolute(x.path) ? x.path : path.join(process.cwd(), x.path)
       return {
         ...x,
-        path: path.relative(Instance.directory, full),
+        path: path.relative(process.cwd(), full),
       }
     })
   }
 
   export async function read(file: string): Promise<Content> {
     using _ = log.time("read", { file })
-    const project = Instance.project
-    const full = path.join(Instance.directory, file)
+    const full = path.join(process.cwd(), file)
 
-    // TODO: Filesystem.contains is lexical only - symlinks inside the project can escape.
-    // TODO: On Windows, cross-drive paths bypass this check. Consider realpath canonicalization.
-    if (!Instance.containsPath(full)) {
+    if (!Filesystem.contains(process.cwd(), full)) {
       throw new Error(`Access denied: path escapes project directory`)
     }
 
@@ -542,15 +504,17 @@ export namespace File {
 
     const content = (await Filesystem.readText(full).catch(() => "")).trim()
 
-    if (project.vcs === "git") {
-      let diff = (await git(["-c", "core.fsmonitor=false", "diff", "--", file], { cwd: Instance.directory })).text()
+    // Check if git repo
+    const isGit = await git(["rev-parse", "--git-dir"], { cwd: process.cwd() }).then((r) => r.exitCode === 0).catch(() => false)
+    if (isGit) {
+      let diff = (await git(["-c", "core.fsmonitor=false", "diff", "--", file], { cwd: process.cwd() })).text()
       if (!diff.trim()) {
         diff = (
-          await git(["-c", "core.fsmonitor=false", "diff", "--staged", "--", file], { cwd: Instance.directory })
+          await git(["-c", "core.fsmonitor=false", "diff", "--staged", "--", file], { cwd: process.cwd() })
         ).text()
       }
       if (diff.trim()) {
-        const original = (await git(["show", `HEAD:${file}`], { cwd: Instance.directory })).text()
+        const original = (await git(["show", `HEAD:${file}`], { cwd: process.cwd() })).text()
         const patch = structuredPatch(file, file, original, content, "old", "new", {
           context: Infinity,
           ignoreWhitespace: true,
@@ -564,25 +528,25 @@ export namespace File {
 
   export async function list(dir?: string) {
     const exclude = [".git", ".DS_Store"]
-    const project = Instance.project
     let ignored = (_: string) => false
-    if (project.vcs === "git") {
+    const isGit = await git(["rev-parse", "--git-dir"], { cwd: process.cwd() }).then((r) => r.exitCode === 0).catch(() => false)
+    if (isGit) {
       const ig = ignore()
-      const gitignorePath = path.join(Instance.worktree, ".gitignore")
+      const gitignorePath = path.join(process.cwd(), ".gitignore")
       if (await Filesystem.exists(gitignorePath)) {
         ig.add(await Filesystem.readText(gitignorePath))
       }
-      const ignorePath = path.join(Instance.worktree, ".ignore")
+      const ignorePath = path.join(process.cwd(), ".ignore")
       if (await Filesystem.exists(ignorePath)) {
         ig.add(await Filesystem.readText(ignorePath))
       }
       ignored = ig.ignores.bind(ig)
     }
-    const resolved = dir ? path.join(Instance.directory, dir) : Instance.directory
+    const resolved = dir ? path.join(process.cwd(), dir) : process.cwd()
 
     // TODO: Filesystem.contains is lexical only - symlinks inside the project can escape.
     // TODO: On Windows, cross-drive paths bypass this check. Consider realpath canonicalization.
-    if (!Instance.containsPath(resolved)) {
+    if (!Filesystem.contains(process.cwd(), resolved)) {
       throw new Error(`Access denied: path escapes project directory`)
     }
 
@@ -594,7 +558,7 @@ export namespace File {
       .catch(() => [])) {
       if (exclude.includes(entry.name)) continue
       const fullPath = path.join(resolved, entry.name)
-      const relativePath = path.relative(Instance.directory, fullPath)
+      const relativePath = path.relative(process.cwd(), fullPath)
       const type = entry.isDirectory() ? "directory" : "file"
       nodes.push({
         name: entry.name,
@@ -618,7 +582,7 @@ export namespace File {
     const kind = input.type ?? (input.dirs === false ? "file" : "all")
     log.info("search", { query, kind })
 
-    const result = await state().then((x) => x.files())
+    const result = await getState().then((x) => x.files())
 
     const hidden = (item: string) => {
       const normalized = item.replaceAll("\\", "/").replace(/\/+$/, "")

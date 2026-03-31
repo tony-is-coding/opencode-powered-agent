@@ -4,7 +4,6 @@ import { streamSSE } from "hono/streaming"
 import z from "zod"
 import { BusEvent } from "@/bus/bus-event"
 import { GlobalBus } from "@/bus/global"
-import { Instance } from "../../project/instance"
 import { Log } from "../../util/log"
 import { lazy } from "../../util/lazy"
 import { Config } from "../../config/config"
@@ -170,7 +169,7 @@ export const GlobalRoutes = lazy(() =>
         },
       }),
       async (c) => {
-        await Instance.disposeAll()
+        // Instance.disposeAll() removed — no per-instance state to dispose
         GlobalBus.emit("event", {
           directory: "global",
           payload: {

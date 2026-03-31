@@ -1,4 +1,3 @@
-import { Instance } from "../project/instance"
 import { Log } from "../util/log"
 
 export namespace Scheduler {
@@ -25,24 +24,10 @@ export namespace Scheduler {
 
   const shared = create()
 
-  const state = Instance.state(
-    () => create(),
-    async (entry) => {
-      for (const timer of entry.timers.values()) {
-        clearInterval(timer)
-      }
-      entry.tasks.clear()
-      entry.timers.clear()
-    },
-  )
-
   export function register(task: Task) {
-    const scope = task.scope ?? "instance"
-    const entry = scope === "global" ? shared : state()
+    const entry = shared
     const current = entry.timers.get(task.id)
-    if (current && scope === "global") return
-    if (current) clearInterval(current)
-
+    if (current) return
     entry.tasks.set(task.id, task)
     void run(task)
     const timer = setInterval(() => {
@@ -59,3 +44,4 @@ export namespace Scheduler {
     })
   }
 }
+

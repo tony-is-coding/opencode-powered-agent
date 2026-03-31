@@ -3,7 +3,6 @@ import os from "os"
 import { Global } from "../global"
 import { Filesystem } from "../util/filesystem"
 import { Config } from "../config/config"
-import { Instance } from "../project/instance"
 import { Flag } from "@/flag/flag"
 import { Log } from "../util/log"
 import { Glob } from "../util/glob"
@@ -31,7 +30,7 @@ function globalFiles() {
 
 async function resolveRelative(instruction: string): Promise<string[]> {
   if (!Flag.OPENCODE_DISABLE_PROJECT_CONFIG) {
-    return Filesystem.globUp(instruction, Instance.directory, Instance.worktree).catch(() => [])
+    return Filesystem.globUp(instruction, process.cwd(), process.cwd()).catch(() => [])
   }
   if (!Flag.OPENCODE_CONFIG_DIR) {
     log.warn(
@@ -43,30 +42,25 @@ async function resolveRelative(instruction: string): Promise<string[]> {
 }
 
 export namespace InstructionPrompt {
-  const state = Instance.state(() => {
-    return {
-      claims: new Map<string, Set<string>>(),
-    }
-  })
+  const claims = new Map<string, Set<string>>()
 
   function isClaimed(messageID: string, filepath: string) {
-    const claimed = state().claims.get(messageID)
+    const claimed = claims.get(messageID)
     if (!claimed) return false
     return claimed.has(filepath)
   }
 
   function claim(messageID: string, filepath: string) {
-    const current = state()
-    let claimed = current.claims.get(messageID)
+    let claimed = claims.get(messageID)
     if (!claimed) {
       claimed = new Set()
-      current.claims.set(messageID, claimed)
+      claims.set(messageID, claimed)
     }
     claimed.add(filepath)
   }
 
   export function clear(messageID: string) {
-    state().claims.delete(messageID)
+    claims.delete(messageID)
   }
 
   export async function systemPaths() {
@@ -75,7 +69,7 @@ export namespace InstructionPrompt {
 
     if (!Flag.OPENCODE_DISABLE_PROJECT_CONFIG) {
       for (const file of FILES) {
-        const matches = await Filesystem.findUp(file, Instance.directory, Instance.worktree)
+        const matches = await Filesystem.findUp(file, process.cwd(), process.cwd())
         if (matches.length > 0) {
           matches.forEach((p) => {
             paths.add(path.resolve(p))
@@ -172,7 +166,7 @@ export namespace InstructionPrompt {
 
     const target = path.resolve(filepath)
     let current = path.dirname(target)
-    const root = path.resolve(Instance.directory)
+    const root = path.resolve(process.cwd())
 
     while (current.startsWith(root) && current !== root) {
       const found = await find(current)

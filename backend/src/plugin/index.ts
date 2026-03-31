@@ -6,7 +6,6 @@ import { Log } from "../util/log"
 import { createOpencodeClient } from "@opencode-ai/sdk"
 import { Server } from "../server/server"
 import { BunProc } from "../bun"
-import { Instance } from "../project/instance"
 import { Flag } from "../flag/flag"
 // Auth plugins removed — MAAS adapter handles provider authentication
 import { Session } from "../session"
@@ -27,10 +26,14 @@ export namespace Plugin {
   // Built-in auth plugins removed — not needed for Agent Core (MAAS handles auth)
   const INTERNAL_PLUGINS: PluginInstance[] = []
 
-  const state = Instance.state(async () => {
+  let _pluginCache: { hooks: Hooks[]; infos: Info[] } | undefined
+
+  async function getState(): Promise<{ hooks: Hooks[]; infos: Info[] }> {
+    if (_pluginCache) return _pluginCache
+
     const client = createOpencodeClient({
       baseUrl: "http://localhost:4096",
-      directory: Instance.directory,
+      directory: process.cwd(),
       headers: Flag.OPENCODE_SERVER_PASSWORD
         ? {
             Authorization: `Basic ${Buffer.from(`${Flag.OPENCODE_SERVER_USERNAME ?? "opencode"}:${Flag.OPENCODE_SERVER_PASSWORD}`).toString("base64")}`,
@@ -43,9 +46,9 @@ export namespace Plugin {
     const infos: Info[] = []
     const input: PluginInput = {
       client,
-      project: Instance.project,
-      worktree: Instance.worktree,
-      directory: Instance.directory,
+      project: { id: "default", worktree: process.cwd() } as any,
+      worktree: process.cwd(),
+      directory: process.cwd(),
       get serverUrl(): URL {
         return Server.url ?? new URL("http://localhost:4096")
       },
@@ -134,12 +137,12 @@ export namespace Plugin {
         })
     }
 
-    return {
+    _pluginCache = {
       hooks,
       infos,
-      input,
     }
-  })
+    return _pluginCache
+  }
 
   export async function trigger<
     Name extends Exclude<keyof Required<Hooks>, "auth" | "event" | "tool">,
@@ -147,7 +150,7 @@ export namespace Plugin {
     Output = Parameters<Required<Hooks>[Name]>[1],
   >(name: Name, input: Input, output: Output): Promise<Output> {
     if (!name) return output
-    for (const hook of await state().then((x) => x.hooks)) {
+    for (const hook of await getState().then((x) => x.hooks)) {
       const fn = hook[name]
       if (!fn) continue
       // @ts-expect-error if you feel adventurous, please fix the typing, make sure to bump the try-counter if you
@@ -159,22 +162,22 @@ export namespace Plugin {
   }
 
   export async function list() {
-    return state().then((x) => x.hooks)
+    return getState().then((x) => x.hooks)
   }
 
   export async function infos() {
-    return state().then((x) => x.infos)
+    return getState().then((x) => x.infos)
   }
 
   export async function init() {
-    const hooks = await state().then((x) => x.hooks)
+    const hooks = await getState().then((x) => x.hooks)
     const config = await Config.get()
     for (const hook of hooks) {
       // @ts-expect-error this is because we haven't moved plugin to sdk v2
       await hook.config?.(config)
     }
     Bus.subscribeAll(async (input) => {
-      const hooks = await state().then((x) => x.hooks)
+      const hooks = await getState().then((x) => x.hooks)
       for (const hook of hooks) {
         hook["event"]?.({
           event: input,

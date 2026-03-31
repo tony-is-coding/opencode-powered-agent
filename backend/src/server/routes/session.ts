@@ -1,5 +1,5 @@
 import { Hono } from "hono"
-import { stream } from "hono/streaming"
+import { stream, streamSSE } from "hono/streaming"
 import { describeRoute, validator, resolver } from "hono-openapi"
 import { SessionID, MessageID, PartID } from "@/session/schema"
 import z from "zod"
@@ -17,10 +17,33 @@ import { Log } from "../../util/log"
 import { PermissionNext } from "@/permission/next"
 import { PermissionID } from "@/permission/schema"
 import { ModelID, ProviderID } from "@/provider/schema"
+import { Bus } from "@/bus"
 import { errors } from "../error"
 import { lazy } from "../../util/lazy"
 
 const log = Log.create({ service: "server" })
+const SessionStreamEvent = z.object({
+  type: z.string(),
+  properties: z.record(z.string(), z.unknown()),
+})
+
+function eventBelongsToSession(event: { type: string; properties?: Record<string, unknown> }, sessionID: SessionID) {
+  const properties = event.properties ?? {}
+  const direct = properties.sessionID ?? properties.sessionId ?? properties.session_id
+  if (typeof direct === "string") return direct === sessionID
+
+  const info = properties.info
+  if (info && typeof info === "object" && "sessionID" in info && typeof info.sessionID === "string") {
+    return info.sessionID === sessionID
+  }
+
+  const part = properties.part
+  if (part && typeof part === "object" && "sessionID" in part && typeof part.sessionID === "string") {
+    return part.sessionID === sessionID
+  }
+
+  return false
+}
 
 export const SessionRoutes = lazy(() =>
   new Hono()
@@ -58,7 +81,6 @@ export const SessionRoutes = lazy(() =>
         const query = c.req.valid("query")
         const sessions: Session.Info[] = []
         for await (const session of Session.list({
-          directory: query.directory,
           roots: query.roots,
           start: query.start,
           search: query.search,
@@ -88,8 +110,10 @@ export const SessionRoutes = lazy(() =>
         },
       }),
       async (c) => {
-        const result = SessionStatus.list()
-        return c.json(result)
+        const tenantSessionIds = new Set<string>([...Session.list({ limit: 10000 })].map((s) => s.id))
+        const allStatus = SessionStatus.list()
+        const filtered = Object.fromEntries(Object.entries(allStatus).filter(([id]) => tenantSessionIds.has(id)))
+        return c.json(filtered)
       },
     )
     .get(
@@ -151,6 +175,7 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
+        await Session.get(sessionID)
         const session = await Session.children(sessionID)
         return c.json(session)
       },
@@ -181,6 +206,7 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
+        await Session.get(sessionID)
         const todos = await Todo.get(sessionID)
         return c.json(todos)
       },
@@ -236,6 +262,7 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
+        await Session.get(sessionID)
         await Session.remove(sessionID)
         return c.json(true)
       },
@@ -319,6 +346,7 @@ export const SessionRoutes = lazy(() =>
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
         const body = c.req.valid("json")
+        await Session.get(sessionID)
         await Session.initialize({ ...body, sessionID })
         return c.json(true)
       },
@@ -350,6 +378,7 @@ export const SessionRoutes = lazy(() =>
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
         const body = c.req.valid("json")
+        await Session.get(sessionID)
         const result = await Session.fork({ ...body, sessionID })
         return c.json(result)
       },
@@ -379,39 +408,10 @@ export const SessionRoutes = lazy(() =>
         }),
       ),
       async (c) => {
-        SessionPrompt.cancel(c.req.valid("param").sessionID)
-        return c.json(true)
-      },
-    )
-    .post(
-      "/:sessionID/share",
-      describeRoute({
-        summary: "Share session",
-        description: "Create a shareable link for a session, allowing others to view the conversation.",
-        operationId: "session.share",
-        responses: {
-          200: {
-            description: "Successfully shared session",
-            content: {
-              "application/json": {
-                schema: resolver(Session.Info),
-              },
-            },
-          },
-          ...errors(400, 404),
-        },
-      }),
-      validator(
-        "param",
-        z.object({
-          sessionID: SessionID.zod,
-        }),
-      ),
-      async (c) => {
         const sessionID = c.req.valid("param").sessionID
-        await Session.share(sessionID)
-        const session = await Session.get(sessionID)
-        return c.json(session)
+        await Session.get(sessionID) // enforces tenant ownership — throws NotFoundError if not owned
+        SessionPrompt.cancel(sessionID)
+        return c.json(true)
       },
     )
     .get(
@@ -446,42 +446,12 @@ export const SessionRoutes = lazy(() =>
       async (c) => {
         const query = c.req.valid("query")
         const params = c.req.valid("param")
+        await Session.get(params.sessionID)
         const result = await SessionSummary.diff({
           sessionID: params.sessionID,
           messageID: query.messageID,
         })
         return c.json(result)
-      },
-    )
-    .delete(
-      "/:sessionID/share",
-      describeRoute({
-        summary: "Unshare session",
-        description: "Remove the shareable link for a session, making it private again.",
-        operationId: "session.unshare",
-        responses: {
-          200: {
-            description: "Successfully unshared session",
-            content: {
-              "application/json": {
-                schema: resolver(Session.Info),
-              },
-            },
-          },
-          ...errors(400, 404),
-        },
-      }),
-      validator(
-        "param",
-        z.object({
-          sessionID: Session.unshare.schema,
-        }),
-      ),
-      async (c) => {
-        const sessionID = c.req.valid("param").sessionID
-        await Session.unshare(sessionID)
-        const session = await Session.get(sessionID)
-        return c.json(session)
       },
     )
     .post(
@@ -614,6 +584,7 @@ export const SessionRoutes = lazy(() =>
           return c.json(messages)
         }
 
+        await Session.get(sessionID)
         const page = await MessageV2.page({
           sessionID,
           limit: query.limit,
@@ -662,6 +633,7 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const params = c.req.valid("param")
+        await Session.get(params.sessionID)
         const message = await MessageV2.get({
           sessionID: params.sessionID,
           messageID: params.messageID,
@@ -697,6 +669,7 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const params = c.req.valid("param")
+        await Session.get(params.sessionID)
         SessionPrompt.assertNotBusy(params.sessionID)
         await Session.removeMessage({
           sessionID: params.sessionID,
@@ -732,6 +705,7 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const params = c.req.valid("param")
+        await Session.get(params.sessionID)
         await Session.removePart({
           sessionID: params.sessionID,
           messageID: params.messageID,
@@ -774,6 +748,7 @@ export const SessionRoutes = lazy(() =>
             `Part mismatch: body.id='${body.id}' vs partID='${params.partID}', body.messageID='${body.messageID}' vs messageID='${params.messageID}', body.sessionID='${body.sessionID}' vs sessionID='${params.sessionID}'`,
           )
         }
+        await Session.get(params.sessionID) // enforces tenant ownership
         const part = await Session.updatePart(body)
         return c.json(part)
       },
@@ -811,11 +786,123 @@ export const SessionRoutes = lazy(() =>
       async (c) => {
         c.status(200)
         c.header("Content-Type", "application/json")
+        const sessionID = c.req.valid("param").sessionID
+        await Session.get(sessionID) // enforces tenant ownership — throws NotFoundError if not owned
         return stream(c, async (stream) => {
-          const sessionID = c.req.valid("param").sessionID
           const body = c.req.valid("json")
           const msg = await SessionPrompt.prompt({ ...body, sessionID })
           stream.write(JSON.stringify(msg))
+        })
+      },
+    )
+    .post(
+      "/:sessionID/prompt_sse",
+      describeRoute({
+        summary: "Send message with SSE stream",
+        description: "Create and send a new message to a session, streaming session events back over SSE.",
+        operationId: "session.prompt_sse",
+        responses: {
+          200: {
+            description: "SSE event stream",
+            content: {
+              "text/event-stream": {
+                schema: resolver(SessionStreamEvent),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator(
+        "param",
+        z.object({
+          sessionID: SessionID.zod,
+        }),
+      ),
+      validator("json", SessionPrompt.PromptInput.omit({ sessionID: true })),
+      async (c) => {
+        c.header("X-Accel-Buffering", "no")
+        c.header("X-Content-Type-Options", "nosniff")
+        c.header("Cache-Control", "no-cache")
+
+        const sessionID = c.req.valid("param").sessionID
+        await Session.get(sessionID) // enforces tenant ownership — throws NotFoundError if not owned
+
+        return streamSSE(c, async (stream) => {
+          const body = c.req.valid("json")
+
+          let settled = false
+          let heartbeat: ReturnType<typeof setInterval> | null = null
+          let unsubscribe = () => {}
+          let resolveDone: (() => void) | undefined
+          const done = new Promise<void>((resolve) => {
+            resolveDone = resolve
+          })
+
+          const finish = () => {
+            if (settled) return
+            settled = true
+            if (heartbeat) clearInterval(heartbeat)
+            unsubscribe()
+            resolveDone?.()
+          }
+
+          const writeEvent = async (event: z.infer<typeof SessionStreamEvent>) => {
+            if (settled) return
+            await stream.writeSSE({
+              data: JSON.stringify(event),
+            })
+          }
+
+          await writeEvent({
+            type: "stream.connected",
+            properties: {
+              sessionID,
+            },
+          })
+
+          unsubscribe = Bus.subscribeAll(async (event) => {
+            if (!eventBelongsToSession(event, sessionID)) return
+            await writeEvent(event)
+          })
+
+          heartbeat = setInterval(() => {
+            void writeEvent({
+              type: "server.heartbeat",
+              properties: {
+                sessionID,
+              },
+            })
+          }, 10_000)
+
+          stream.onAbort(() => {
+            finish()
+          })
+
+          SessionPrompt.prompt({ ...body, sessionID })
+            .then(async () => {
+              if (settled) return
+              await writeEvent({
+                type: "stream.done",
+                properties: {
+                  sessionID,
+                },
+              })
+              finish()
+            })
+            .catch(async (err: unknown) => {
+              log.error("prompt_sse failed", { sessionID, error: err })
+              await writeEvent({
+                type: "stream.error",
+                properties: {
+                  sessionID,
+                  message: err instanceof Error ? err.message : String(err),
+                },
+              })
+              finish()
+            })
+
+          await done
         })
       },
     )
@@ -843,10 +930,13 @@ export const SessionRoutes = lazy(() =>
       async (c) => {
         c.status(204)
         c.header("Content-Type", "application/json")
+        const sessionID = c.req.valid("param").sessionID
+        await Session.get(sessionID) // enforces tenant ownership — throws NotFoundError if not owned
         return stream(c, async () => {
-          const sessionID = c.req.valid("param").sessionID
           const body = c.req.valid("json")
-          SessionPrompt.prompt({ ...body, sessionID })
+          SessionPrompt.prompt({ ...body, sessionID }).catch((err: unknown) => {
+            log.error("prompt_async failed", { sessionID, error: err })
+          })
         })
       },
     )
@@ -882,6 +972,7 @@ export const SessionRoutes = lazy(() =>
       validator("json", SessionPrompt.CommandInput.omit({ sessionID: true })),
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
+        await Session.get(sessionID) // enforces tenant ownership — throws NotFoundError if not owned
         const body = c.req.valid("json")
         const msg = await SessionPrompt.command({ ...body, sessionID })
         return c.json(msg)
@@ -914,6 +1005,7 @@ export const SessionRoutes = lazy(() =>
       validator("json", SessionPrompt.ShellInput.omit({ sessionID: true })),
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
+        await Session.get(sessionID) // enforces tenant ownership — throws NotFoundError if not owned
         const body = c.req.valid("json")
         const msg = await SessionPrompt.shell({ ...body, sessionID })
         return c.json(msg)
@@ -947,6 +1039,7 @@ export const SessionRoutes = lazy(() =>
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
         log.info("revert", c.req.valid("json"))
+        await Session.get(sessionID)
         const session = await SessionRevert.revert({
           sessionID,
           ...c.req.valid("json"),
@@ -980,6 +1073,7 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
+        await Session.get(sessionID)
         const session = await SessionRevert.unrevert({ sessionID })
         return c.json(session)
       },
@@ -1013,6 +1107,7 @@ export const SessionRoutes = lazy(() =>
       validator("json", z.object({ response: PermissionNext.Reply })),
       async (c) => {
         const params = c.req.valid("param")
+        await Session.get(params.sessionID)
         PermissionNext.reply({
           requestID: params.permissionID,
           reply: c.req.valid("json").response,

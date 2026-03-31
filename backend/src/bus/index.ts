@@ -1,6 +1,5 @@
 import z from "zod"
 import { Log } from "../util/log"
-import { Instance } from "../project/instance"
 import { BusEvent } from "./bus-event"
 import { GlobalBus } from "./global"
 
@@ -15,28 +14,7 @@ export namespace Bus {
     }),
   )
 
-  const state = Instance.state(
-    () => {
-      const subscriptions = new Map<any, Subscription[]>()
-
-      return {
-        subscriptions,
-      }
-    },
-    async (entry) => {
-      const wildcard = entry.subscriptions.get("*")
-      if (!wildcard) return
-      const event = {
-        type: InstanceDisposed.type,
-        properties: {
-          directory: Instance.directory,
-        },
-      }
-      for (const sub of [...wildcard]) {
-        sub(event)
-      }
-    },
-  )
+  const subscriptions = new Map<any, Subscription[]>()
 
   export async function publish<Definition extends BusEvent.Definition>(
     def: Definition,
@@ -51,13 +29,13 @@ export namespace Bus {
     })
     const pending = []
     for (const key of [def.type, "*"]) {
-      const match = state().subscriptions.get(key)
+      const match = subscriptions.get(key)
       for (const sub of match ?? []) {
         pending.push(sub(payload))
       }
     }
     GlobalBus.emit("event", {
-      directory: Instance.directory,
+      directory: process.cwd(),
       payload,
     })
     return Promise.all(pending)
@@ -88,7 +66,6 @@ export namespace Bus {
 
   function raw(type: string, callback: (event: any) => void) {
     log.info("subscribing", { type })
-    const subscriptions = state().subscriptions
     let match = subscriptions.get(type) ?? []
     match.push(callback)
     subscriptions.set(type, match)
@@ -103,3 +80,4 @@ export namespace Bus {
     }
   }
 }
+

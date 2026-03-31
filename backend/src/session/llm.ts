@@ -13,7 +13,6 @@ import {
 import { mergeDeep, pipe } from "remeda"
 import { ProviderTransform } from "@/provider/transform"
 import { Config } from "@/config/config"
-import { Instance } from "@/project/instance"
 import type { Agent } from "@/agent/agent"
 import type { MessageV2 } from "./message-v2"
 import { Plugin } from "@/plugin"
@@ -206,7 +205,6 @@ export namespace LLM {
       headers: {
         ...(input.model.providerID.startsWith("opencode")
           ? {
-              "x-opencode-project": Instance.project.id,
               "x-opencode-session": input.sessionID,
               "x-opencode-request": input.user.id,
               "x-opencode-client": Flag.OPENCODE_CLIENT,

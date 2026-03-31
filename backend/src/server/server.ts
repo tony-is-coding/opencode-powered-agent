@@ -9,8 +9,6 @@ import { basicAuth } from "hono/basic-auth"
 import z from "zod"
 import { Provider } from "../provider/provider"
 import { NamedError } from "@opencode-ai/util/error"
-import { Instance } from "../project/instance"
-import { Vcs } from "../project/vcs"
 import { Agent } from "../agent/agent"
 import { Skill } from "../skill/skill"
 import { Plugin } from "../plugin"
@@ -19,22 +17,23 @@ import { Flag } from "../flag/flag"
 import { Command } from "../command"
 import { Global } from "../global"
 import { ProviderID } from "../provider/schema"
-import { ProjectRoutes } from "./routes/project"
 import { SessionRoutes } from "./routes/session"
+import { Session } from "../session"
 import { McpRoutes } from "./routes/mcp"
 import { ConfigRoutes } from "./routes/config"
 import { ExperimentalRoutes } from "./routes/experimental"
 import { ProviderRoutes } from "./routes/provider"
-import { InstanceBootstrap } from "../project/bootstrap"
 import { NotFoundError } from "../storage/db"
 import type { ContentfulStatusCode } from "hono/utils/http-status"
 import { HTTPException } from "hono/http-exception"
 import { errors } from "./error"
-import { Filesystem } from "@/util/filesystem"
 import { QuestionRoutes } from "./routes/question"
 import { PermissionRoutes } from "./routes/permission"
 import { GlobalRoutes } from "./routes/global"
+import { DocumentRoutes } from "./routes/document"
+import { ScheduleRoutes } from "./routes/schedule"
 import { lazy } from "@/util/lazy"
+import { TenantContext } from "@/tenant"
 
 // @ts-ignore This global is needed to prevent ai-sdk from logging warnings to stdout https://github.com/vercel/ai/blob/2dc67e0ef538307f21368db32d5a12345d98831b/packages/ai/src/logger/log-warnings.ts#L85
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -121,25 +120,7 @@ export namespace Server {
       // Auth routes removed — external tenant system handles authentication
       .use(async (c, next) => {
         if (c.req.path === "/log") return next()
-        // WorkspaceID handling removed — tenant isolation via HTTP headers
-        const raw = c.req.query("directory") || c.req.header("x-opencode-directory") || process.cwd()
-        const directory = Filesystem.resolve(
-          (() => {
-            try {
-              return decodeURIComponent(raw)
-            } catch {
-              return raw
-            }
-          })(),
-        )
-
-        return Instance.provide({
-          directory,
-          init: InstanceBootstrap,
-          async fn() {
-            return next()
-          },
-        })
+        return TenantContext.middleware(c, next)
       })
       .get(
         "/doc",
@@ -154,16 +135,7 @@ export namespace Server {
           },
         }),
       )
-      .use(
-        validator(
-          "query",
-          z.object({
-            directory: z.string().optional(),
-            workspace: z.string().optional(),
-          }),
-        ),
-      )
-      .route("/project", ProjectRoutes())
+      // .route("/project", ProjectRoutes()) — removed: project routes replaced by tenant isolation
       // .route("/pty", PtyRoutes()) — removed: PTY not needed for general-purpose agent
       .route("/config", ConfigRoutes())
       .route("/experimental", ExperimentalRoutes())
@@ -173,92 +145,9 @@ export namespace Server {
       .route("/provider", ProviderRoutes())
       // .route("/", FileRoutes()) — removed: file routes not needed
       .route("/mcp", McpRoutes())
+      .route("/document", DocumentRoutes())
+      .route("/schedule", ScheduleRoutes())
       // .route("/tui", TuiRoutes()) — removed: TUI not needed
-      .post(
-        "/instance/dispose",
-        describeRoute({
-          summary: "Dispose instance",
-          description: "Clean up and dispose the current OpenCode instance, releasing all resources.",
-          operationId: "instance.dispose",
-          responses: {
-            200: {
-              description: "Instance disposed",
-              content: {
-                "application/json": {
-                  schema: resolver(z.boolean()),
-                },
-              },
-            },
-          },
-        }),
-        async (c) => {
-          await Instance.dispose()
-          return c.json(true)
-        },
-      )
-      .get(
-        "/path",
-        describeRoute({
-          summary: "Get paths",
-          description: "Retrieve the current working directory and related path information for the OpenCode instance.",
-          operationId: "path.get",
-          responses: {
-            200: {
-              description: "Path",
-              content: {
-                "application/json": {
-                  schema: resolver(
-                    z
-                      .object({
-                        home: z.string(),
-                        state: z.string(),
-                        config: z.string(),
-                        worktree: z.string(),
-                        directory: z.string(),
-                      })
-                      .meta({
-                        ref: "Path",
-                      }),
-                  ),
-                },
-              },
-            },
-          },
-        }),
-        async (c) => {
-          return c.json({
-            home: Global.Path.home,
-            state: Global.Path.state,
-            config: Global.Path.config,
-            worktree: Instance.worktree,
-            directory: Instance.directory,
-          })
-        },
-      )
-      .get(
-        "/vcs",
-        describeRoute({
-          summary: "Get VCS info",
-          description: "Retrieve version control system (VCS) information for the current project, such as git branch.",
-          operationId: "vcs.get",
-          responses: {
-            200: {
-              description: "VCS info",
-              content: {
-                "application/json": {
-                  schema: resolver(Vcs.Info),
-                },
-              },
-            },
-          },
-        }),
-        async (c) => {
-          const branch = await Vcs.branch()
-          return c.json({
-            branch,
-          })
-        },
-      )
       .get(
         "/command",
         describeRoute({
@@ -384,6 +273,31 @@ export namespace Server {
           const showAll = c.req.query("all") === "true"
           const skills = showAll ? await Skill.all() : await Skill.enabled()
           return c.json(skills)
+        },
+      )
+      .get(
+        "/skill/:name",
+        describeRoute({
+          summary: "Get skill detail",
+          description: "Get a single skill by name, including its full SKILL.md content.",
+          operationId: "app.skill.get",
+          responses: {
+            200: {
+              description: "Skill detail",
+              content: {
+                "application/json": {
+                  schema: resolver(Skill.Info),
+                },
+              },
+            },
+            ...errors(404),
+          },
+        }),
+        async (c) => {
+          const name = c.req.param("name")
+          const skill = await Skill.get(name)
+          if (!skill) return c.json({ error: "Skill not found" }, 404)
+          return c.json(skill)
         },
       )
       .put(
@@ -512,6 +426,7 @@ export namespace Server {
           log.info("event connected")
           c.header("X-Accel-Buffering", "no")
           c.header("X-Content-Type-Options", "nosniff")
+          const tenant = TenantContext.get()
           return streamSSE(c, async (stream) => {
             stream.writeSSE({
               data: JSON.stringify({
@@ -519,13 +434,44 @@ export namespace Server {
                 properties: {},
               }),
             })
+
+            // Build initial set of tenant's session IDs for filtering message.* events
+            const tenantSessionIds = new Set<string>([...Session.list({ limit: 10000 })].map((s) => s.id))
+
             const unsub = Bus.subscribeAll(async (event) => {
-              await stream.writeSSE({
-                data: JSON.stringify(event),
-              })
-              if (event.type === Bus.InstanceDisposed.type) {
-                stream.close()
+              // Always forward server-level events to all connections
+              if (event.type.startsWith("server.")) {
+                await stream.writeSSE({ data: JSON.stringify(event) })
+                if (event.type === Bus.InstanceDisposed.type) stream.close()
+                return
               }
+
+              const props = (event as any).properties ?? {}
+              const info = props.info
+
+              // Update local session set on session lifecycle events
+              if (event.type === "session.created" && info?.tenantId === tenant.tenantId) {
+                tenantSessionIds.add(info.id)
+              } else if (event.type === "session.deleted" && info?.tenantId === tenant.tenantId) {
+                tenantSessionIds.delete(info.id)
+              }
+
+              // Check tenant ownership
+              const eventTenantId = info?.tenantId ?? props.tenantId
+              const eventSessionId = props.sessionID ?? info?.id
+
+              if (eventTenantId) {
+                // Event has explicit tenantId — use it
+                if (eventTenantId !== tenant.tenantId) return
+              } else if (eventSessionId) {
+                // Event has sessionID — check if it belongs to this tenant
+                if (!tenantSessionIds.has(eventSessionId)) return
+              } else {
+                // No tenant info at all — drop
+                return
+              }
+
+              await stream.writeSSE({ data: JSON.stringify(event) })
             })
 
             // Send heartbeat every 10s to prevent stalled proxy streams.

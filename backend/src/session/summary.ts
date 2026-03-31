@@ -83,19 +83,8 @@ export namespace SessionSummary {
 
   async function summarizeSession(input: { sessionID: SessionID; messages: MessageV2.WithParts[] }) {
     const diffs = await computeDiff({ messages: input.messages })
-    await Session.setSummary({
-      sessionID: input.sessionID,
-      summary: {
-        additions: diffs.reduce((sum, x) => sum + x.additions, 0),
-        deletions: diffs.reduce((sum, x) => sum + x.deletions, 0),
-        files: diffs.length,
-      },
-    })
     await Storage.write(["session_diff", input.sessionID], diffs)
-    Bus.publish(Session.Event.Diff, {
-      sessionID: input.sessionID,
-      diff: diffs,
-    })
+    // Session.Event.Diff removed — snapshot diff events no longer published
   }
 
   async function summarizeMessage(input: { messageID: string; messages: MessageV2.WithParts[] }) {

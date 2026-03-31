@@ -4,7 +4,6 @@ import { Provider } from "../provider/provider"
 import { ModelID, ProviderID } from "../provider/schema"
 import { generateObject, streamObject, type ModelMessage } from "ai"
 import { SystemPrompt } from "../session/system"
-import { Instance } from "../project/instance"
 import { Truncate } from "../tool/truncation"
 import { ProviderTransform } from "../provider/transform"
 
@@ -13,6 +12,7 @@ import PROMPT_COMPACTION from "./prompt/compaction.txt"
 import PROMPT_EXPLORE from "./prompt/explore.txt"
 import PROMPT_SUMMARY from "./prompt/summary.txt"
 import PROMPT_TITLE from "./prompt/title.txt"
+import PROMPT_DEEP_RESEARCH from "./prompt/deep_research.txt"
 import { PermissionNext } from "@/permission/next"
 import { mergeDeep, pipe, sortBy, values } from "remeda"
 import { Global } from "@/global"
@@ -48,7 +48,9 @@ export namespace Agent {
     })
   export type Info = z.infer<typeof Info>
 
-  const state = Instance.state(async () => {
+  let _stateCache: Record<string, Info> | undefined
+
+  async function buildState(): Promise<Record<string, Info>> {
     const cfg = await Config.get()
 
     const skillDirs = await Skill.dirs()
@@ -104,7 +106,6 @@ export namespace Agent {
             edit: {
               "*": "deny",
               [path.join(".opencode", "plans", "*.md")]: "allow",
-              [path.relative(Instance.worktree, path.join(Global.Path.data, path.join("plans", "*.md")))]: "allow",
             },
           }),
           user,
@@ -152,6 +153,24 @@ export namespace Agent {
         prompt: PROMPT_EXPLORE,
         options: {},
         mode: "subagent",
+        native: true,
+      },
+      deep_research: {
+        name: "deep_research",
+        description: `Deep research agent for comprehensive multi-source investigation. Use this agent when you need to gather, synthesize, and analyze information from multiple web sources, documentation, and codebases to produce thorough research reports.`,
+        prompt: PROMPT_DEEP_RESEARCH,
+        permission: PermissionNext.merge(
+          defaults,
+          PermissionNext.fromConfig({
+            "*": "deny",
+            websearch: "allow",
+            webfetch: "allow",
+            data_api: "allow",
+          }),
+          user,
+        ),
+        options: {},
+        mode: "primary",
         native: true,
       },
       compaction: {
@@ -248,16 +267,21 @@ export namespace Agent {
     }
 
     return result
-  })
+  }
+
+  async function getState(): Promise<Record<string, Info>> {
+    if (!_stateCache) _stateCache = await buildState()
+    return _stateCache
+  }
 
   export async function get(agent: string) {
-    return state().then((x) => x[agent])
+    return getState().then((x) => x[agent])
   }
 
   export async function list() {
     const cfg = await Config.get()
     return pipe(
-      await state(),
+      await getState(),
       values(),
       sortBy([(x) => (cfg.default_agent ? x.name === cfg.default_agent : x.name === "build"), "desc"]),
     )
@@ -265,7 +289,7 @@ export namespace Agent {
 
   export async function defaultAgent() {
     const cfg = await Config.get()
-    const agents = await state()
+    const agents = await getState()
 
     if (cfg.default_agent) {
       const agent = agents[cfg.default_agent]

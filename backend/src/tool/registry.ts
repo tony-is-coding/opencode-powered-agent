@@ -9,9 +9,9 @@ import { TodoWriteTool } from "./todo"
 import { WebFetchTool } from "./webfetch"
 import { InvalidTool } from "./invalid"
 import { SkillTool } from "./skill"
+import { DataApiTool } from "./data_api"
 import type { Agent } from "../agent/agent"
 import { Tool } from "./tool"
-import { Instance } from "../project/instance"
 import { Config } from "../config/config"
 import path from "path"
 import { type ToolContext as PluginToolContext, type ToolDefinition } from "@opencode-ai/plugin"
@@ -29,7 +29,11 @@ import { pathToFileURL } from "url"
 export namespace ToolRegistry {
   const log = Log.create({ service: "tool.registry" })
 
-  export const state = Instance.state(async () => {
+  let _stateCache: { custom: Tool.Info[] } | undefined
+
+  async function getState(): Promise<{ custom: Tool.Info[] }> {
+    if (_stateCache) return _stateCache
+
     const custom = [] as Tool.Info[]
 
     const matches = await Config.directories().then((dirs) =>
@@ -53,8 +57,9 @@ export namespace ToolRegistry {
       }
     }
 
-    return { custom }
-  })
+    _stateCache = { custom }
+    return _stateCache
+  }
 
   function fromPlugin(id: string, def: ToolDefinition): Tool.Info {
     return {
@@ -65,8 +70,6 @@ export namespace ToolRegistry {
         execute: async (args, ctx) => {
           const pluginCtx = {
             ...ctx,
-            directory: Instance.directory,
-            worktree: Instance.worktree,
           } as unknown as PluginToolContext
           const result = await def.execute(args as any, pluginCtx)
           const out = await Truncate.output(result, {}, initCtx?.agent)
@@ -81,7 +84,7 @@ export namespace ToolRegistry {
   }
 
   export async function register(tool: Tool.Info) {
-    const { custom } = await state()
+    const { custom } = await getState()
     const idx = custom.findIndex((t) => t.id === tool.id)
     if (idx >= 0) {
       custom.splice(idx, 1, tool)
@@ -91,7 +94,7 @@ export namespace ToolRegistry {
   }
 
   async function all(): Promise<Tool.Info[]> {
-    const custom = await state().then((x) => x.custom)
+    const custom = await getState().then((x) => x.custom)
     const config = await Config.get()
     const question = Flag.OPENCODE_ENABLE_QUESTION_TOOL
 
@@ -110,6 +113,7 @@ export namespace ToolRegistry {
       WebSearchTool,
       TodoWriteTool,
       SkillTool,
+      DataApiTool,
       ...(config.experimental?.batch_tool === true ? [BatchTool] : []),
 
       // 插件/MCP 注册的自定义工具
@@ -157,3 +161,4 @@ export namespace ToolRegistry {
     return result
   }
 }
+

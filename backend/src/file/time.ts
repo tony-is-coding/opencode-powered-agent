@@ -1,40 +1,28 @@
-import { Instance } from "../project/instance"
 import { Log } from "../util/log"
 import { Flag } from "../flag/flag"
 import { Filesystem } from "../util/filesystem"
 
 export namespace FileTime {
   const log = Log.create({ service: "file.time" })
-  // Per-session read times plus per-file write locks.
-  // All tools that overwrite existing files should run their
-  // assert/read/write/update sequence inside withLock(filepath, ...)
-  // so concurrent writes to the same file are serialized.
-  export const state = Instance.state(() => {
-    const read: {
-      [sessionID: string]: {
-        [path: string]: Date | undefined
-      }
-    } = {}
-    const locks = new Map<string, Promise<void>>()
-    return {
-      read,
-      locks,
-    }
-  })
+
+  const fileTimeState = {
+    read: {} as { [sessionID: string]: { [path: string]: Date | undefined } },
+    locks: new Map<string, Promise<void>>(),
+  }
 
   export function read(sessionID: string, file: string) {
     log.info("read", { sessionID, file })
-    const { read } = state()
+    const { read } = fileTimeState
     read[sessionID] = read[sessionID] || {}
     read[sessionID][file] = new Date()
   }
 
   export function get(sessionID: string, file: string) {
-    return state().read[sessionID]?.[file]
+    return fileTimeState.read[sessionID]?.[file]
   }
 
   export async function withLock<T>(filepath: string, fn: () => Promise<T>): Promise<T> {
-    const current = state()
+    const current = fileTimeState
     const currentLock = current.locks.get(filepath) ?? Promise.resolve()
     let release: () => void = () => {}
     const nextLock = new Promise<void>((resolve) => {
@@ -61,7 +49,6 @@ export namespace FileTime {
     const time = get(sessionID, filepath)
     if (!time) throw new Error(`You must read file ${filepath} before overwriting it. Use the Read tool first`)
     const mtime = Filesystem.stat(filepath)?.mtime
-    // Allow a 50ms tolerance for Windows NTFS timestamp fuzziness / async flushing
     if (mtime && mtime.getTime() > time.getTime() + 50) {
       throw new Error(
         `File ${filepath} has been modified since it was last read.\nLast modification: ${mtime.toISOString()}\nLast read: ${time.toISOString()}\n\nPlease read the file again before modifying it.`,
