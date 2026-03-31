@@ -175,6 +175,7 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
+        await Session.get(sessionID)
         const session = await Session.children(sessionID)
         return c.json(session)
       },
@@ -261,6 +262,7 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
+        await Session.get(sessionID)
         await Session.remove(sessionID)
         return c.json(true)
       },
@@ -376,6 +378,7 @@ export const SessionRoutes = lazy(() =>
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
         const body = c.req.valid("json")
+        await Session.get(sessionID)
         const result = await Session.fork({ ...body, sessionID })
         return c.json(result)
       },
@@ -666,6 +669,7 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const params = c.req.valid("param")
+        await Session.get(params.sessionID)
         SessionPrompt.assertNotBusy(params.sessionID)
         await Session.removeMessage({
           sessionID: params.sessionID,
@@ -701,6 +705,7 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const params = c.req.valid("param")
+        await Session.get(params.sessionID)
         await Session.removePart({
           sessionID: params.sessionID,
           messageID: params.messageID,
@@ -1035,6 +1040,7 @@ export const SessionRoutes = lazy(() =>
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
         log.info("revert", c.req.valid("json"))
+        await Session.get(sessionID)
         const session = await SessionRevert.revert({
           sessionID,
           ...c.req.valid("json"),
