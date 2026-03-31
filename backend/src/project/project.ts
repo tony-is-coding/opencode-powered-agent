@@ -272,18 +272,7 @@ export namespace Project {
     Database.use((db) =>
       db.insert(ProjectTable).values(insert).onConflictDoUpdate({ target: ProjectTable.id, set: updateSet }).run(),
     )
-    // Runs after upsert so the target project row exists (FK constraint).
-    // Runs on every startup because sessions created before git init
-    // accumulate under "global" and need migrating whenever they appear.
-    if (data.id !== ProjectID.global) {
-      Database.use((db) =>
-        db
-          .update(SessionTable)
-          .set({ project_id: data.id })
-          .where(and(eq(SessionTable.project_id, ProjectID.global), eq(SessionTable.directory, data.worktree)))
-          .run(),
-      )
-    }
+    // Session migration by project_id removed — sessions now use tenant_id/user_id
     GlobalBus.emit("event", {
       payload: {
         type: Event.Updated.type,
