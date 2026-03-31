@@ -391,6 +391,7 @@ export namespace Session {
       messageID: MessageID.zod,
     }),
     async (input) => {
+      await get(input.sessionID) // enforces forTenant() — throws if not owned by current tenant
       // CASCADE delete handles parts automatically
       Database.use((db) => {
         db.delete(MessageTable)
@@ -414,6 +415,7 @@ export namespace Session {
       partID: PartID.zod,
     }),
     async (input) => {
+      await get(input.sessionID) // enforces forTenant() — throws if not owned by current tenant
       Database.use((db) => {
         db.delete(PartTable)
           .where(and(eq(PartTable.id, input.partID), eq(PartTable.session_id, input.sessionID)))

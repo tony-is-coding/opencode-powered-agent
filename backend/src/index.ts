@@ -58,4 +58,3 @@ MCP.init().catch((e) => Log.Default.error("mcp init failed", { e }))
 
 // Keep process alive
 await new Promise(() => {})
-await server.stop()

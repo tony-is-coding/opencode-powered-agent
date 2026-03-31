@@ -734,6 +734,7 @@ export const SessionRoutes = lazy(() =>
             `Part mismatch: body.id='${body.id}' vs partID='${params.partID}', body.messageID='${body.messageID}' vs messageID='${params.messageID}', body.sessionID='${body.sessionID}' vs sessionID='${params.sessionID}'`,
           )
         }
+        await Session.get(params.sessionID) // enforces tenant ownership
         const part = await Session.updatePart(body)
         return c.json(part)
       },

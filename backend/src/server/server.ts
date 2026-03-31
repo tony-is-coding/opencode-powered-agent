@@ -425,6 +425,7 @@ export namespace Server {
           log.info("event connected")
           c.header("X-Accel-Buffering", "no")
           c.header("X-Content-Type-Options", "nosniff")
+          const tenant = TenantContext.get()
           return streamSSE(c, async (stream) => {
             stream.writeSSE({
               data: JSON.stringify({
@@ -433,9 +434,17 @@ export namespace Server {
               }),
             })
             const unsub = Bus.subscribeAll(async (event) => {
-              await stream.writeSSE({
-                data: JSON.stringify(event),
-              })
+              // Always forward server-level events
+              if (event.type.startsWith("server.")) {
+                await stream.writeSSE({ data: JSON.stringify(event) })
+                return
+              }
+              // For session/message events, check tenant ownership
+              const props = (event as any).properties ?? {}
+              const info = props.info
+              const eventTenantId = info?.tenantId ?? props.tenantId
+              if (eventTenantId && eventTenantId !== tenant.tenantId) return
+              await stream.writeSSE({ data: JSON.stringify(event) })
               if (event.type === Bus.InstanceDisposed.type) {
                 stream.close()
               }
