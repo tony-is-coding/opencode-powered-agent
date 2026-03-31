@@ -134,15 +134,6 @@ export namespace Server {
           },
         }),
       )
-      .use(
-        validator(
-          "query",
-          z.object({
-            directory: z.string().optional(),
-            workspace: z.string().optional(),
-          }),
-        ),
-      )
       // .route("/project", ProjectRoutes()) — removed: project routes replaced by tenant isolation
       // .route("/pty", PtyRoutes()) — removed: PTY not needed for general-purpose agent
       .route("/config", ConfigRoutes())

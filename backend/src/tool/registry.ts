@@ -70,8 +70,6 @@ export namespace ToolRegistry {
         execute: async (args, ctx) => {
           const pluginCtx = {
             ...ctx,
-            directory: process.cwd(),
-            worktree: process.cwd(),
           } as unknown as PluginToolContext
           const result = await def.execute(args as any, pluginCtx)
           const out = await Truncate.output(result, {}, initCtx?.agent)

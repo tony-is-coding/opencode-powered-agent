@@ -61,15 +61,7 @@ export namespace SessionRevert {
       const rangeMessages = all.filter((msg) => msg.info.id >= revert!.messageID)
       const diffs = await SessionSummary.computeDiff({ messages: rangeMessages })
       await Storage.write(["session_diff", input.sessionID], diffs)
-      return Session.setRevert({
-        sessionID: input.sessionID,
-        revert,
-        summary: {
-          additions: diffs.reduce((sum, x) => sum + x.additions, 0),
-          deletions: diffs.reduce((sum, x) => sum + x.deletions, 0),
-          files: diffs.length,
-        },
-      })
+      return session
     }
     return session
   }
@@ -81,7 +73,7 @@ export namespace SessionRevert {
     const sessionAny = session as any
     if (!sessionAny.revert) return session
     if (sessionAny.revert.snapshot) await Snapshot.restore(sessionAny.revert.snapshot)
-    return Session.clearRevert(input.sessionID)
+    return session
   }
 
   export async function cleanup(session: Session.Info) {
@@ -130,7 +122,6 @@ export namespace SessionRevert {
         }
       }
     }
-    await Session.clearRevert(sessionID)
   }
 }
 

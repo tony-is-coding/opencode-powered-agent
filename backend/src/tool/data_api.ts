@@ -1,58 +1,64 @@
 import z from "zod"
 import { Tool } from "./tool"
-import { Server } from "@/server/server"
+import { TenantContext } from "@/tenant"
+import { Log } from "@/util/log"
 
-/**
- * DataApiTool — lets agents call the backend's own REST API.
- * Useful for reading/writing sessions, schedules, and other platform data.
- */
+const log = Log.create({ service: "tool.data_api" })
+
 export const DataApiTool = Tool.define("data_api", {
   description:
-    "Call the backend REST API to read or write platform data (sessions, schedules, etc.). " +
-    "Use this tool when you need to interact with structured platform data rather than the filesystem.",
+    "Query structured data from the internal data API. Use this to retrieve domain-specific knowledge, internal datasets, or structured records.",
   parameters: z.object({
-    method: z
-      .enum(["GET", "POST", "PUT", "PATCH", "DELETE"])
-      .describe("HTTP method"),
-    path: z
+    query: z.string().describe("Natural language query or structured query expression"),
+    dataset: z
       .string()
-      .describe("API path, e.g. /session or /schedule/123. Must start with /"),
-    body: z
-      .record(z.string(), z.any())
       .optional()
-      .describe("Request body for POST/PUT/PATCH requests"),
+      .describe("Target dataset name, omit to search across all accessible datasets"),
   }),
-  async execute(params, _ctx) {
-    if (!params.path.startsWith("/")) {
-      throw new Error("path must start with /")
-    }
+  async execute(args, _ctx): Promise<{ title: string; output: string; metadata: Record<string, unknown> }> {
+    const { tenantId, userId } = TenantContext.get()
+    const baseUrl = process.env.DATA_API_BASE_URL
+    if (!baseUrl) throw new Error("DATA_API_BASE_URL is not configured")
 
-    const base = Server.url?.toString().replace(/\/$/, "") ?? "http://localhost:4096"
-    const url = `${base}${params.path}`
+    const timeout = AbortSignal.timeout(30_000)
 
-    const init: RequestInit = {
-      method: params.method,
-      headers: { "Content-Type": "application/json" },
-    }
-    if (params.body && ["POST", "PUT", "PATCH"].includes(params.method)) {
-      init.body = JSON.stringify(params.body)
-    }
-
-    const res = await fetch(url, init)
-    const text = await res.text()
-
-    let output: string
+    let res: Response
     try {
-      const json = JSON.parse(text)
-      output = JSON.stringify(json, null, 2)
-    } catch {
-      output = text
+      res = await fetch(`${baseUrl}/query`, {
+        method: "POST",
+        headers: {
+          "x-tenant-id": tenantId,
+          "x-user-id": userId,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(args),
+        signal: timeout,
+      })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      log.warn("data_api fetch failed", { error: msg, tenantId })
+      return {
+        title: "data_api",
+        output: `[data_api error] Failed to reach Data API: ${msg}`,
+        metadata: { error: true },
+      }
     }
 
+    if (!res.ok) {
+      const body = await res.text().catch(() => "")
+      log.warn("data_api non-ok response", { status: res.status, tenantId })
+      return {
+        title: "data_api",
+        output: `[data_api error] Data API returned ${res.status}: ${body}`,
+        metadata: { error: true, status: res.status },
+      }
+    }
+
+    const output = await res.text()
     return {
-      title: `${params.method} ${params.path} → ${res.status}`,
+      title: "data_api",
       output,
-      metadata: { status: res.status, ok: res.ok },
+      metadata: {},
     }
   },
 })
