@@ -434,20 +434,18 @@ export namespace Server {
               }),
             })
             const unsub = Bus.subscribeAll(async (event) => {
-              // Always forward server-level events
+              // Always forward server-level events to all connections
               if (event.type.startsWith("server.")) {
                 await stream.writeSSE({ data: JSON.stringify(event) })
+                if (event.type === Bus.InstanceDisposed.type) stream.close()
                 return
               }
-              // For session/message events, check tenant ownership
+              // For all other events, only forward if tenantId matches
               const props = (event as any).properties ?? {}
               const info = props.info
               const eventTenantId = info?.tenantId ?? props.tenantId
-              if (eventTenantId && eventTenantId !== tenant.tenantId) return
+              if (!eventTenantId || eventTenantId !== tenant.tenantId) return
               await stream.writeSSE({ data: JSON.stringify(event) })
-              if (event.type === Bus.InstanceDisposed.type) {
-                stream.close()
-              }
             })
 
             // Send heartbeat every 10s to prevent stalled proxy streams.

@@ -814,6 +814,9 @@ export const SessionRoutes = lazy(() =>
           const sessionID = c.req.valid("param").sessionID
           const body = c.req.valid("json")
 
+          // Verify session ownership before opening stream
+          await Session.get(sessionID) // throws NotFoundError if not owned by current tenant
+
           let settled = false
           let heartbeat: ReturnType<typeof setInterval> | null = null
           let unsubscribe = () => {}
