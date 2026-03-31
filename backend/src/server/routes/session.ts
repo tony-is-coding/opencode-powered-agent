@@ -110,8 +110,10 @@ export const SessionRoutes = lazy(() =>
         },
       }),
       async (c) => {
-        const result = SessionStatus.list()
-        return c.json(result)
+        const tenantSessionIds = new Set<string>([...Session.list()].map((s) => s.id))
+        const allStatus = SessionStatus.list()
+        const filtered = Object.fromEntries(Object.entries(allStatus).filter(([id]) => tenantSessionIds.has(id)))
+        return c.json(filtered)
       },
     )
     .get(
@@ -401,7 +403,9 @@ export const SessionRoutes = lazy(() =>
         }),
       ),
       async (c) => {
-        SessionPrompt.cancel(c.req.valid("param").sessionID)
+        const sessionID = c.req.valid("param").sessionID
+        await Session.get(sessionID) // enforces tenant ownership — throws NotFoundError if not owned
+        SessionPrompt.cancel(sessionID)
         return c.json(true)
       },
     )
@@ -772,8 +776,9 @@ export const SessionRoutes = lazy(() =>
       async (c) => {
         c.status(200)
         c.header("Content-Type", "application/json")
+        const sessionID = c.req.valid("param").sessionID
+        await Session.get(sessionID) // enforces tenant ownership — throws NotFoundError if not owned
         return stream(c, async (stream) => {
-          const sessionID = c.req.valid("param").sessionID
           const body = c.req.valid("json")
           const msg = await SessionPrompt.prompt({ ...body, sessionID })
           stream.write(JSON.stringify(msg))
@@ -916,8 +921,9 @@ export const SessionRoutes = lazy(() =>
       async (c) => {
         c.status(204)
         c.header("Content-Type", "application/json")
+        const sessionID = c.req.valid("param").sessionID
+        await Session.get(sessionID) // enforces tenant ownership — throws NotFoundError if not owned
         return stream(c, async () => {
-          const sessionID = c.req.valid("param").sessionID
           const body = c.req.valid("json")
           SessionPrompt.prompt({ ...body, sessionID }).catch((err: unknown) => {
             log.error("prompt_async failed", { sessionID, error: err })
@@ -957,6 +963,7 @@ export const SessionRoutes = lazy(() =>
       validator("json", SessionPrompt.CommandInput.omit({ sessionID: true })),
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
+        await Session.get(sessionID) // enforces tenant ownership — throws NotFoundError if not owned
         const body = c.req.valid("json")
         const msg = await SessionPrompt.command({ ...body, sessionID })
         return c.json(msg)
@@ -989,6 +996,7 @@ export const SessionRoutes = lazy(() =>
       validator("json", SessionPrompt.ShellInput.omit({ sessionID: true })),
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
+        await Session.get(sessionID) // enforces tenant ownership — throws NotFoundError if not owned
         const body = c.req.valid("json")
         const msg = await SessionPrompt.shell({ ...body, sessionID })
         return c.json(msg)

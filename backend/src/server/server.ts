@@ -18,6 +18,7 @@ import { Command } from "../command"
 import { Global } from "../global"
 import { ProviderID } from "../provider/schema"
 import { SessionRoutes } from "./routes/session"
+import { Session } from "../session"
 import { McpRoutes } from "./routes/mcp"
 import { ConfigRoutes } from "./routes/config"
 import { ExperimentalRoutes } from "./routes/experimental"
@@ -433,6 +434,10 @@ export namespace Server {
                 properties: {},
               }),
             })
+
+            // Build initial set of tenant's session IDs for filtering message.* events
+            const tenantSessionIds = new Set<string>([...Session.list()].map((s) => s.id))
+
             const unsub = Bus.subscribeAll(async (event) => {
               // Always forward server-level events to all connections
               if (event.type.startsWith("server.")) {
@@ -440,11 +445,32 @@ export namespace Server {
                 if (event.type === Bus.InstanceDisposed.type) stream.close()
                 return
               }
-              // For all other events, only forward if tenantId matches
+
               const props = (event as any).properties ?? {}
               const info = props.info
+
+              // Update local session set on session lifecycle events
+              if (event.type === "session.created" && info?.tenantId === tenant.tenantId) {
+                tenantSessionIds.add(info.id)
+              } else if (event.type === "session.deleted" && info?.tenantId === tenant.tenantId) {
+                tenantSessionIds.delete(info.id)
+              }
+
+              // Check tenant ownership
               const eventTenantId = info?.tenantId ?? props.tenantId
-              if (!eventTenantId || eventTenantId !== tenant.tenantId) return
+              const eventSessionId = props.sessionID ?? info?.id
+
+              if (eventTenantId) {
+                // Event has explicit tenantId — use it
+                if (eventTenantId !== tenant.tenantId) return
+              } else if (eventSessionId) {
+                // Event has sessionID — check if it belongs to this tenant
+                if (!tenantSessionIds.has(eventSessionId)) return
+              } else {
+                // No tenant info at all — drop
+                return
+              }
+
               await stream.writeSSE({ data: JSON.stringify(event) })
             })
 
