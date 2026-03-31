@@ -9,8 +9,6 @@ import { basicAuth } from "hono/basic-auth"
 import z from "zod"
 import { Provider } from "../provider/provider"
 import { NamedError } from "@opencode-ai/util/error"
-import { Instance } from "../project/instance"
-import { Vcs } from "../project/vcs"
 import { Agent } from "../agent/agent"
 import { Skill } from "../skill/skill"
 import { Plugin } from "../plugin"
@@ -19,24 +17,22 @@ import { Flag } from "../flag/flag"
 import { Command } from "../command"
 import { Global } from "../global"
 import { ProviderID } from "../provider/schema"
-import { ProjectRoutes } from "./routes/project"
 import { SessionRoutes } from "./routes/session"
 import { McpRoutes } from "./routes/mcp"
 import { ConfigRoutes } from "./routes/config"
 import { ExperimentalRoutes } from "./routes/experimental"
 import { ProviderRoutes } from "./routes/provider"
-import { InstanceBootstrap } from "../project/bootstrap"
 import { NotFoundError } from "../storage/db"
 import type { ContentfulStatusCode } from "hono/utils/http-status"
 import { HTTPException } from "hono/http-exception"
 import { errors } from "./error"
-import { Filesystem } from "@/util/filesystem"
 import { QuestionRoutes } from "./routes/question"
 import { PermissionRoutes } from "./routes/permission"
 import { GlobalRoutes } from "./routes/global"
 import { DocumentRoutes } from "./routes/document"
 import { ScheduleRoutes } from "./routes/schedule"
 import { lazy } from "@/util/lazy"
+import { TenantContext } from "@/tenant"
 
 // @ts-ignore This global is needed to prevent ai-sdk from logging warnings to stdout https://github.com/vercel/ai/blob/2dc67e0ef538307f21368db32d5a12345d98831b/packages/ai/src/logger/log-warnings.ts#L85
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -123,25 +119,7 @@ export namespace Server {
       // Auth routes removed — external tenant system handles authentication
       .use(async (c, next) => {
         if (c.req.path === "/log") return next()
-        // WorkspaceID handling removed — tenant isolation via HTTP headers
-        const raw = c.req.query("directory") || c.req.header("x-opencode-directory") || process.cwd()
-        const directory = Filesystem.resolve(
-          (() => {
-            try {
-              return decodeURIComponent(raw)
-            } catch {
-              return raw
-            }
-          })(),
-        )
-
-        return Instance.provide({
-          directory,
-          init: InstanceBootstrap,
-          async fn() {
-            return next()
-          },
-        })
+        return TenantContext.middleware(c, next)
       })
       .get(
         "/doc",
@@ -165,7 +143,7 @@ export namespace Server {
           }),
         ),
       )
-      .route("/project", ProjectRoutes())
+      // .route("/project", ProjectRoutes()) — removed: project routes replaced by tenant isolation
       // .route("/pty", PtyRoutes()) — removed: PTY not needed for general-purpose agent
       .route("/config", ConfigRoutes())
       .route("/experimental", ExperimentalRoutes())
@@ -178,91 +156,6 @@ export namespace Server {
       .route("/document", DocumentRoutes())
       .route("/schedule", ScheduleRoutes())
       // .route("/tui", TuiRoutes()) — removed: TUI not needed
-      .post(
-        "/instance/dispose",
-        describeRoute({
-          summary: "Dispose instance",
-          description: "Clean up and dispose the current OpenCode instance, releasing all resources.",
-          operationId: "instance.dispose",
-          responses: {
-            200: {
-              description: "Instance disposed",
-              content: {
-                "application/json": {
-                  schema: resolver(z.boolean()),
-                },
-              },
-            },
-          },
-        }),
-        async (c) => {
-          await Instance.dispose()
-          return c.json(true)
-        },
-      )
-      .get(
-        "/path",
-        describeRoute({
-          summary: "Get paths",
-          description: "Retrieve the current working directory and related path information for the OpenCode instance.",
-          operationId: "path.get",
-          responses: {
-            200: {
-              description: "Path",
-              content: {
-                "application/json": {
-                  schema: resolver(
-                    z
-                      .object({
-                        home: z.string(),
-                        state: z.string(),
-                        config: z.string(),
-                        worktree: z.string(),
-                        directory: z.string(),
-                      })
-                      .meta({
-                        ref: "Path",
-                      }),
-                  ),
-                },
-              },
-            },
-          },
-        }),
-        async (c) => {
-          return c.json({
-            home: Global.Path.home,
-            state: Global.Path.state,
-            config: Global.Path.config,
-            worktree: Instance.worktree,
-            directory: Instance.directory,
-          })
-        },
-      )
-      .get(
-        "/vcs",
-        describeRoute({
-          summary: "Get VCS info",
-          description: "Retrieve version control system (VCS) information for the current project, such as git branch.",
-          operationId: "vcs.get",
-          responses: {
-            200: {
-              description: "VCS info",
-              content: {
-                "application/json": {
-                  schema: resolver(Vcs.Info),
-                },
-              },
-            },
-          },
-        }),
-        async (c) => {
-          const branch = await Vcs.branch()
-          return c.json({
-            branch,
-          })
-        },
-      )
       .get(
         "/command",
         describeRoute({

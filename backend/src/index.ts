@@ -7,6 +7,7 @@
 import { Server } from "./server/server"
 import { Log } from "./util/log"
 import { Flag } from "./flag/flag"
+import { MCP } from "./mcp"
 
 process.on("unhandledRejection", (e) => {
   Log.Default.error("rejection", {
@@ -51,6 +52,9 @@ const server = Server.listen({ port, hostname })
 Log.Default.info("agent-core started", {
   url: `http://${server.hostname}:${server.port}`,
 })
+
+// Initialize MCP connections on startup
+MCP.init().catch((e) => Log.Default.error("mcp init failed", { e }))
 
 // Keep process alive
 await new Promise(() => {})

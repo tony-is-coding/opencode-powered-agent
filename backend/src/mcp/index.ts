@@ -13,7 +13,6 @@ import { Config } from "../config/config"
 import { Log } from "../util/log"
 import { NamedError } from "@opencode-ai/util/error"
 import z from "zod/v4"
-import { Instance } from "../project/instance"
 import { withTimeout } from "@/util/timeout"
 import { McpOAuthProvider } from "./oauth-provider"
 import { McpOAuthCallback } from "./oauth-callback"
@@ -179,69 +178,47 @@ export namespace MCP {
     return pids
   }
 
-  const state = Instance.state(
-    async () => {
-      const cfg = await Config.get()
-      const config = cfg.mcp ?? {}
-      const clients: Record<string, MCPClient> = {}
-      const status: Record<string, Status> = {}
+  let _stateCache: { status: Record<string, Status>; clients: Record<string, MCPClient> } | undefined
 
-      await Promise.all(
-        Object.entries(config).map(async ([key, mcp]) => {
-          if (!isMcpConfigured(mcp)) {
-            log.error("Ignoring MCP config entry without type", { key })
-            return
-          }
+  async function getState() {
+    if (_stateCache) return _stateCache
 
-          // If disabled by config, mark as disabled without trying to connect
-          if (mcp.enabled === false) {
-            status[key] = { status: "disabled" }
-            return
-          }
+    const cfg = await Config.get()
+    const config = cfg.mcp ?? {}
+    const clients: Record<string, MCPClient> = {}
+    const status: Record<string, Status> = {}
 
-          const result = await create(key, mcp).catch(() => undefined)
-          if (!result) return
-
-          status[key] = result.status
-
-          if (result.mcpClient) {
-            clients[key] = result.mcpClient
-          }
-        }),
-      )
-      return {
-        status,
-        clients,
-      }
-    },
-    async (state) => {
-      // The MCP SDK only signals the direct child process on close.
-      // Servers like chrome-devtools-mcp spawn grandchild processes
-      // (e.g. Chrome) that the SDK never reaches, leaving them orphaned.
-      // Kill the full descendant tree first so the server exits promptly
-      // and no processes are left behind.
-      for (const client of Object.values(state.clients)) {
-        const pid = (client.transport as any)?.pid
-        if (typeof pid !== "number") continue
-        for (const dpid of await descendants(pid)) {
-          try {
-            process.kill(dpid, "SIGTERM")
-          } catch {}
+    await Promise.all(
+      Object.entries(config).map(async ([key, mcp]) => {
+        if (!isMcpConfigured(mcp)) {
+          log.error("Ignoring MCP config entry without type", { key })
+          return
         }
-      }
 
-      await Promise.all(
-        Object.values(state.clients).map((client) =>
-          client.close().catch((error) => {
-            log.error("Failed to close MCP client", {
-              error,
-            })
-          }),
-        ),
-      )
-      pendingOAuthTransports.clear()
-    },
-  )
+        // If disabled by config, mark as disabled without trying to connect
+        if (mcp.enabled === false) {
+          status[key] = { status: "disabled" }
+          return
+        }
+
+        const result = await create(key, mcp).catch(() => undefined)
+        if (!result) return
+
+        status[key] = result.status
+
+        if (result.mcpClient) {
+          clients[key] = result.mcpClient
+        }
+      }),
+    )
+
+    _stateCache = { status, clients }
+    return _stateCache
+  }
+
+  export async function init() {
+    await getState()
+  }
 
   // Helper function to fetch prompts for a specific client
   async function fetchPromptsForClient(clientName: string, client: Client) {
@@ -289,7 +266,7 @@ export namespace MCP {
   }
 
   export async function add(name: string, mcp: Config.Mcp) {
-    const s = await state()
+    const s = await getState()
     const result = await create(name, mcp)
     if (!result) {
       const status = {
@@ -445,7 +422,7 @@ export namespace MCP {
 
     if (mcp.type === "local") {
       const [cmd, ...args] = mcp.command
-      const cwd = Instance.directory
+      const cwd = process.cwd()
       const transport = new StdioClientTransport({
         stderr: "pipe",
         command: cmd,
@@ -532,7 +509,7 @@ export namespace MCP {
   }
 
   export async function status() {
-    const s = await state()
+    const s = await getState()
     const cfg = await Config.get()
     const config = cfg.mcp ?? {}
     const result: Record<string, Status> = {}
@@ -547,7 +524,7 @@ export namespace MCP {
   }
 
   export async function clients() {
-    return state().then((state) => state.clients)
+    return getState().then((s) => s.clients)
   }
 
   export async function connect(name: string) {
@@ -567,7 +544,7 @@ export namespace MCP {
     const result = await create(name, { ...mcp, enabled: true })
 
     if (!result) {
-      const s = await state()
+      const s = await getState()
       s.status[name] = {
         status: "failed",
         error: "Unknown error during connection",
@@ -575,7 +552,7 @@ export namespace MCP {
       return
     }
 
-    const s = await state()
+    const s = await getState()
     s.status[name] = result.status
     if (result.mcpClient) {
       // Close existing client if present to prevent memory leaks
@@ -590,7 +567,7 @@ export namespace MCP {
   }
 
   export async function disconnect(name: string) {
-    const s = await state()
+    const s = await getState()
     const client = s.clients[name]
     if (client) {
       await client.close().catch((error) => {
@@ -603,7 +580,7 @@ export namespace MCP {
 
   export async function tools() {
     const result: Record<string, Tool> = {}
-    const s = await state()
+    const s = await getState()
     const cfg = await Config.get()
     const config = cfg.mcp ?? {}
     const clientsSnapshot = await clients()
@@ -644,7 +621,7 @@ export namespace MCP {
   }
 
   export async function prompts() {
-    const s = await state()
+    const s = await getState()
     const clientsSnapshot = await clients()
 
     const prompts = Object.fromEntries<PromptInfo & { client: string }>(
@@ -665,7 +642,7 @@ export namespace MCP {
   }
 
   export async function resources() {
-    const s = await state()
+    const s = await getState()
     const clientsSnapshot = await clients()
 
     const result = Object.fromEntries<ResourceInfo & { client: string }>(
@@ -826,7 +803,7 @@ export namespace MCP {
 
     if (!authorizationUrl) {
       // Already authenticated
-      const s = await state()
+      const s = await getState()
       return s.status[mcpName] ?? { status: "connected" }
     }
 
