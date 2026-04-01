@@ -15,6 +15,7 @@
   --text-muted: #94a3b8;
   --accent: #3b82f6;
   --accent-hover: #2563eb;
+  --accent-bg: rgba(59, 130, 246, 0.16);
   --user-bg: #1e3a5f;
   --assistant-bg: #1a1f2d;
   --danger: #ef4444;
