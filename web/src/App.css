@@ -132,9 +132,8 @@ a {
   gap: 16px;
   padding: 16px 24px;
   border-bottom: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.95);
+  background: rgba(15, 17, 23, 0.72);
   backdrop-filter: blur(14px);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
   position: sticky;
   top: 0;
   z-index: 10;
