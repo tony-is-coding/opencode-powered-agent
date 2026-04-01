@@ -122,10 +122,7 @@ a {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  background:
-    radial-gradient(circle at top left, rgba(59, 130, 246, 0.14), transparent 24%),
-    radial-gradient(circle at top right, rgba(34, 197, 94, 0.1), transparent 20%),
-    var(--bg);
+  background: var(--bg);
 }
 
 .topbar {
@@ -133,17 +130,19 @@ a {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 18px 24px;
+  padding: 16px 24px;
   border-bottom: 1px solid var(--border);
-  background: rgba(15, 17, 23, 0.72);
+  background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(14px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
   position: sticky;
   top: 0;
   z-index: 10;
 }
 
 :root[data-theme='light'] .topbar {
-  background: rgba(255, 255, 255, 0.84);
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
 
 .brand-block {
@@ -190,7 +189,7 @@ a {
   padding: 9px 14px;
   border-radius: 999px;
   color: var(--text-muted);
-  transition: 0.2s ease;
+  transition: 0.15s ease;
 }
 
 .topnav-link:hover {
@@ -199,11 +198,7 @@ a {
 }
 
 .topnav-link.active {
-  background: rgba(59, 130, 246, 0.16);
-  color: #8fb7ff;
-}
-
-:root[data-theme='light'] .topnav-link.active {
+  background: var(--accent-bg);
   color: var(--accent);
 }
 
