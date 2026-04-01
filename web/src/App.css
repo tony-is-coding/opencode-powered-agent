@@ -24,16 +24,24 @@
 }
 
 :root[data-theme='light'] {
-  --bg: #edf2f7;
+  /* 背景 */
+  --bg: #f8f9fb;
   --bg-secondary: #ffffff;
-  --bg-hover: #eef4ff;
-  --panel: rgba(255, 255, 255, 0.9);
-  --border: #d7deea;
-  --text: #111827;
-  --text-muted: #64748b;
-  --accent: #2563eb;
-  --accent-hover: #1d4ed8;
-  --user-bg: #dbeafe;
+  --bg-hover: #f1f3f7;
+  --panel: rgba(255, 255, 255, 0.95);
+  --border: #e1e5eb;
+
+  /* 文字 */
+  --text: #1f2937;
+  --text-muted: #6b7280;
+
+  /* 强调色 */
+  --accent: #4a90e2;
+  --accent-hover: #3b82f6;
+  --accent-bg: #e8f4fd;
+
+  /* 消息气泡 */
+  --user-bg: #e8f4fd;
   --assistant-bg: #ffffff;
 }
 
