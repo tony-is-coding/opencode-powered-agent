@@ -217,8 +217,23 @@ export function DocumentsPage() {
   const [viewMode, setViewMode] = useState<ViewMode>('split')
   const [showNewFile, setShowNewFile] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [isDarkTheme, setIsDarkTheme] = useState(
+    document.documentElement.dataset.theme === 'dark',
+  )
 
   const isDirty = content !== savedContent
+
+  // Listen for theme changes
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      setIsDarkTheme(document.documentElement.dataset.theme === 'dark')
+    })
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme'],
+    })
+    return () => observer.disconnect()
+  }, [])
 
   const loadFiles = useCallback(async () => {
     try {
@@ -452,7 +467,7 @@ export function DocumentsPage() {
                     <Editor
                       height="100%"
                       language={editorLang}
-                      theme="vs-dark"
+                      theme={isDarkTheme ? 'vs-dark' : 'vs-light'}
                       value={content}
                       onChange={(v) => setContent(v ?? '')}
                       options={{

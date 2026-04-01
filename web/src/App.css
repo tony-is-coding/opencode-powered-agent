@@ -22,6 +22,7 @@
   --success: #22c55e;
   --warning: #f59e0b;
   --radius: 12px;
+  --code-bg: rgba(2, 6, 23, 0.72);
 }
 
 :root[data-theme='light'] {
@@ -44,6 +45,9 @@
   /* 消息气泡 */
   --user-bg: #e8f4fd;
   --assistant-bg: #ffffff;
+
+  /* 代码块背景 */
+  --code-bg: rgba(0, 0, 0, 0.05);
 }
 
 body {
@@ -513,7 +517,7 @@ a {
 }
 
 .part-text pre {
-  background: rgba(2, 6, 23, 0.72);
+  background: var(--code-bg);
   padding: 0.75rem;
   border-radius: 6px;
   overflow-x: auto;
@@ -522,7 +526,7 @@ a {
 }
 
 .part-text code {
-  background: rgba(2, 6, 23, 0.72);
+  background: var(--code-bg);
   padding: 2px 6px;
   border-radius: 4px;
   font-size: 0.85em;
@@ -646,7 +650,7 @@ a {
   font-size: 0.75rem;
   margin-top: 4px;
   padding: 0.5rem;
-  background: rgba(2, 6, 23, 0.72);
+  background: var(--code-bg);
   border-radius: 4px;
 }
 
@@ -826,7 +830,7 @@ a {
 }
 
 .skills-page__eyebrow {
-  color: #8fb7ff;
+  color: var(--accent);
   text-transform: uppercase;
   letter-spacing: 0.14em;
   font-size: 0.75rem;
@@ -922,6 +926,7 @@ a {
   background: var(--bg-secondary);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
   transition: border-color 0.15s, box-shadow 0.15s;
+  cursor: pointer;
 }
 
 :root[data-theme='light'] .skills-card {
@@ -1117,7 +1122,7 @@ a {
 }
 
 .eyebrow {
-  color: #8fb7ff;
+  color: var(--accent);
   text-transform: uppercase;
   letter-spacing: 0.14em;
   font-size: 0.72rem;
@@ -1130,7 +1135,7 @@ a {
   font-size: 0.72rem;
   font-weight: 600;
   background: rgba(59, 130, 246, 0.14);
-  color: #8fb7ff;
+  color: var(--accent);
   white-space: nowrap;
 }
 
@@ -1305,7 +1310,7 @@ a {
 }
 
 .task-process-kicker {
-  color: #8fb7ff;
+  color: var(--accent);
   text-transform: uppercase;
   letter-spacing: 0.14em;
   font-size: 0.72rem;
@@ -1400,7 +1405,7 @@ a {
 .task-live-panel {
   padding: 16px 20px;
   border-radius: 16px;
-  background: rgba(2, 6, 23, 0.56);
+  background: var(--code-bg);
   border: 1px solid var(--border);
   margin-bottom: 20px;
 }
@@ -1726,10 +1731,6 @@ a {
 .modal-error {
   padding: 20px 24px;
   color: var(--danger);
-}
-
-.skills-card {
-  cursor: pointer;
 }
 
 /* ── Login Page ── */
@@ -2199,7 +2200,7 @@ a {
 
 .docs-view-btn.active {
   background: rgba(59, 130, 246, 0.16);
-  color: #8fb7ff;
+  color: var(--accent);
 }
 
 :root[data-theme='light'] .docs-view-btn.active {
@@ -2549,7 +2550,7 @@ a {
   padding: 2px 8px;
   border-radius: 6px;
   font-size: 0.78rem;
-  color: #8fb7ff;
+  color: var(--accent);
 }
 
 :root[data-theme='light'] .schedule-meta-value code {
