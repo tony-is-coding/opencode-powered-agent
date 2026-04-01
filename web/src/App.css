@@ -2024,7 +2024,7 @@ a {
   width: 260px;
   min-width: 260px;
   border-right: 1px solid var(--border);
-  background: var(--bg-secondary);
+  background: var(--bg);
   overflow-y: auto;
 }
 
@@ -2053,16 +2053,16 @@ a {
 .doc-tree-item {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   width: 100%;
-  padding: 6px 12px;
+  padding: 8px 16px;
   background: transparent;
   color: var(--text);
   font-size: 0.84rem;
   text-align: left;
   border: none;
   cursor: pointer;
-  transition: background 0.1s;
+  transition: background 0.15s;
 }
 
 .doc-tree-item:hover {
@@ -2070,8 +2070,8 @@ a {
 }
 
 .doc-tree-item.selected {
-  background: rgba(59, 130, 246, 0.14);
-  color: #8fb7ff;
+  background: var(--accent-bg);
+  color: var(--accent);
 }
 
 :root[data-theme='light'] .doc-tree-item.selected {
@@ -2131,7 +2131,7 @@ a {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 8px 16px;
+  padding: 12px 20px;
   border-bottom: 1px solid var(--border);
   background: var(--bg-secondary);
   flex-wrap: wrap;
