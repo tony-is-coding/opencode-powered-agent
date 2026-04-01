@@ -27,7 +27,7 @@ const navItems = [
 
 function getInitialTheme(): Theme {
   const storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY)
-  return storedTheme === 'light' ? 'light' : 'dark'
+  return storedTheme === 'dark' ? 'dark' : 'light'
 }
 
 function AppLayout({
